@@ -4,7 +4,7 @@
       [
         "@react-native-tvos/config-tv",
         {
-          "androidTVBanner": "./assets/images/icon-400x240.png",
+          "androidTVBanner": "./assets/images/android-chrome-192x192.png",
           "appleTVImages": {
             "icon": "./assets/images/icon-1280x768.png",
             "iconSmall": "./assets/images/icon-400x240.png",
@@ -16,9 +16,18 @@
           }
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-font"
     ],
-    "name": "MyTVProject",
-    "slug": "MyTVProject"
+    "name": "Totem",
+    "slug": "Totem",
+    "extra": {
+      "eas": {
+        "projectId": "d1457a0d-6598-499b-b9c1-0017b0ed1754"
+      }
+    },
+    "android": {
+      "package": "com.juanch1.Totem"
+    }
   }
 }

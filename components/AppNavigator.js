@@ -4,6 +4,7 @@ import { getDatabase, ref, onValue, off } from 'firebase/database'
 import MediaPlayer from './MediaPlayer'
 import TimeWeatherScreen from './TimeWeatherScreen'
 import YouTubePlayer from './YoutubePlayer'
+import Canvas from './Canvas'
 import { getDeviceId } from './utils/deviceId'
 
 const AppNavigator = () => {
@@ -13,8 +14,10 @@ const AppNavigator = () => {
     const fetchData = async () => {
       try {
         const deviceId = await getDeviceId()
+        console.log('Device ID:', deviceId)
         const db = getDatabase()
         const screenRef = ref(db, `devices/${deviceId}/currentScreen`)
+        console.log('Screen ref:', screenRef)
 
         onValue(screenRef, (snapshot) => {
           const screenValue = snapshot.val()
@@ -31,14 +34,24 @@ const AppNavigator = () => {
     fetchData()
 
     return () => {
-      const db = getDatabase()
-      const deviceId = getDeviceId()
-      const screenRef = ref(db, `devices/${deviceId}/currentScreen`)
-      off(screenRef)
+      const cleanup = async () => {
+        try {
+          const deviceId = await getDeviceId() // Obtener el ID del dispositivo para limpiar
+          console.log('Cleaning up for device ID:', deviceId)
+          const db = getDatabase()
+          const screenRef = ref(db, `devices/${deviceId}/currentScreen`)
+          off(screenRef) // Desconectar la escucha de los cambios
+        } catch (error) {
+          console.error('Error during cleanup:', error)
+        }
+      }
+
+      cleanup()
     }
   }, [])
 
   const renderScreen = () => {
+    console.log('Current screen:', currentScreen)
     switch (currentScreen) {
       case 'MediaPlayer':
         return <MediaPlayer />
@@ -46,6 +59,8 @@ const AppNavigator = () => {
         return <TimeWeatherScreen />
       case 'YoutubePlayer':
         return <YouTubePlayer />
+      case 'Canvas':
+        return <Canvas />
       default:
         return <MediaPlayer />
     }

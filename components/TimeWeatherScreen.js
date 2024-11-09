@@ -5,11 +5,19 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
+  SafeAreaView,
+  Dimensions,
+  Image,
 } from 'react-native'
 import axios from 'axios'
 import { Feather } from '@expo/vector-icons'
+import { isPortrait, widthScreen, heightScreen } from './utils/portrait'
 
-const WeatherCard = () => {
+const WeatherCard = ({
+  width = widthScreen,
+  height = heightScreen,
+  location = 'Quito',
+}) => {
   const [weatherData, setWeatherData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -18,9 +26,34 @@ const WeatherCard = () => {
   useEffect(() => {
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date())
-    }, 60000)
+    }, 5000)
+
+    const locationName =
+      location && typeof location === 'string' && location.trim() !== ''
+        ? location
+        : 'Quito'
 
     const fetchWeatherData = async () => {
+      try {
+        const response = await axios.get(
+          `https://api.openweathermap.org/data/2.5/weather?q=${location}&units=metric&appid=a4c1b5215f0503cc9d10fa7ed2055c70`
+        )
+
+        // Si no se encuentra la ubicación, la API devuelve un error 404
+        if (response.data.cod === '404') {
+          setError('Location not found, using default location: Quito.')
+          // Intentamos obtener el clima para Quito
+          fetchWeatherDataForQuito()
+        } else {
+          setWeatherData(response.data)
+          setLoading(false)
+        }
+      } catch (err) {
+        fetchWeatherDataForQuito()
+      }
+    }
+
+    const fetchWeatherDataForQuito = async () => {
       try {
         const response = await axios.get(
           `https://api.openweathermap.org/data/2.5/weather?q=Quito&units=metric&appid=a4c1b5215f0503cc9d10fa7ed2055c70`
@@ -28,14 +61,14 @@ const WeatherCard = () => {
         setWeatherData(response.data)
         setLoading(false)
       } catch (err) {
-        setError('Failed to fetch weather data')
+        setError('Failed to fetch weather data for Quito.')
         setLoading(false)
       }
     }
 
     fetchWeatherData()
     return () => clearInterval(timeInterval)
-  }, [])
+  }, [location]) // Dependencia para cambiar si la location cambia
 
   const getWeatherIcon = (iconCode) => {
     switch (iconCode) {
@@ -175,7 +208,7 @@ const WeatherCard = () => {
       temp: Math.round(weatherData.main.temp),
     },
     {
-      time: 'Now',
+      time: 'AHORA',
       icon: getWeatherIcon(weatherData.weather[0].icon),
       precipitation: 25,
       temp: Math.round(weatherData.main.temp),
@@ -207,62 +240,92 @@ const WeatherCard = () => {
   ]
 
   return (
-    <View style={[styles.container, getBackgroundStyle()]}>
-      <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
-
-      {renderWeatherElements()}
-
-      <View style={styles.mainContent}>
-        <Text style={styles.cityName}>{weatherData.name}</Text>
-        <Text style={styles.temperature}>
-          {Math.round(weatherData.main.temp)}°
-        </Text>
-        <Text style={styles.condition}>
-          {weatherData.weather[0].description}
-        </Text>
-        <Text style={styles.highLow}>
-          H:{Math.round(weatherData.main.temp_max)}° L:
-          {Math.round(weatherData.main.temp_min)}°
-        </Text>
-      </View>
-
-      <View style={styles.forecastContainer}>
-        <View style={styles.forecastHeader}>
-          <Text style={styles.forecastHeaderText}>Hourly Forecast</Text>
-          <Text style={styles.forecastHeaderText}>Weekly Forecast</Text>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.forecastScroll}
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.centeredContainer}>
+        <View
+          style={[
+            styles.card,
+            getBackgroundStyle(),
+            {
+              width: isPortrait() ? width : height, // Ajusta el tamaño dependiendo de la orientación
+              height: isPortrait() ? height : width, // Igual aquí
+              transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }],
+            },
+          ]}
         >
-          {hourlyForecast.map((hour, index) => (
-            <View
-              key={index}
-              style={[
-                styles.hourlyCard,
-                hour.time === 'Now' && styles.currentHourCard,
-              ]}
-            >
-              <Text style={styles.hourlyTime}>{hour.time}</Text>
-              <Feather name={hour.icon} size={24} color='white' />
-              <Text style={styles.hourlyPrecip}>{hour.precipitation}%</Text>
-              <Text style={styles.hourlyTemp}>{hour.temp}°</Text>
+          <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+
+          {renderWeatherElements()}
+
+          <View style={styles.mainContent}>
+            <Text style={styles.cityName}>{weatherData.name}</Text>
+            <Text style={styles.temperature}>
+              {Math.round(weatherData.main.temp)}°
+            </Text>
+            <Text style={styles.condition}>
+              {weatherData.weather[0].description}
+            </Text>
+            <Text style={styles.highLow}>
+              H:{Math.round(weatherData.main.temp_max)}° L:
+              {Math.round(weatherData.main.temp_min)}°
+            </Text>
+          </View>
+
+          <View style={styles.forecastContainer}>
+            <View style={styles.forecastHeader}>
+              <Text style={styles.forecastHeaderText}>Pronóstico por hora</Text>
+              <Text style={styles.forecastHeaderText}>
+                Pronóstico por semana
+              </Text>
             </View>
-          ))}
-        </ScrollView>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.forecastScroll}
+            >
+              {hourlyForecast.map((hour, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.hourlyCard,
+                    hour.time === 'Now' && styles.currentHourCard,
+                  ]}
+                >
+                  <Text style={styles.hourlyTime}>{hour.time}</Text>
+                  <Feather name={hour.icon} size={24} color='white' />
+                  <Text style={styles.hourlyPrecip}>{hour.precipitation}%</Text>
+                  <Text style={styles.hourlyTemp}>{hour.temp}°</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
       </View>
-    </View>
+    </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  card: {
+    padding: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
   container: {
     flex: 1,
-    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   dayBackground: {
-    backgroundColor: '#053B50',
+    backgroundColor: '#FFA500',
   },
   nightBackground: {
     backgroundColor: '#001E3C',
@@ -271,7 +334,7 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     position: 'absolute',
-    top: 40,
+    top: 20,
     left: 20,
   },
   weatherElements: {

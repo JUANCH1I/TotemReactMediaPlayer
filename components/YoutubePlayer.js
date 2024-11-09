@@ -1,66 +1,32 @@
-import { useVideoPlayer, VideoView } from 'expo-video'
-import { useEffect, useRef, useState } from 'react'
-import { PixelRatio, StyleSheet, View, Button } from 'react-native'
+/*import React from 'react'
+import { SafeAreaView, StyleSheet } from 'react-native'
+import { WebView } from 'react-native-webview'
 
-const videoSource =
-  'https://www.youtube.com/watch?v=KyhA6JGYK0g&ab_channel=Duki'
-export default function VideoScreen() {
-  const ref = useRef(null)
-  const [isPlaying, setIsPlaying] = useState(true)
-  const player = useVideoPlayer(videoSource, (player) => {
-    player.loop = true
-    player.play()
-  })
+const App = () => {
+  // ID del video de YouTube
+  const videoId = 'dQw4w9WgXcQ' // Reemplaza con el ID de tu video de YouTube
 
-  useEffect(() => {
-    const subscription = player.addListener('playingChange', (isPlaying) => {
-      setIsPlaying(isPlaying)
-    })
-
-    return () => {
-      subscription.remove()
-    }
-  }, [player])
+  // URL de embebido de YouTube
+  const embedUrl = `https://www.youtube.com/embed/${videoId}`
 
   return (
-    <View style={styles.contentContainer}>
-      <VideoView
-        ref={ref}
-        style={styles.video}
-        player={player}
-        allowsFullscreen
-        allowsPictureInPicture
+    <SafeAreaView style={styles.container}>
+      <WebView
+        source={{ uri: embedUrl }}
+        style={{ flex: 1 }}
+        javaScriptEnabled={true} // Asegura que JavaScript esté habilitado
+        domStorageEnabled={true} // Habilita el almacenamiento DOM
       />
-      <View style={styles.controlsContainer}>
-        <Button
-          title={isPlaying ? 'Pause' : 'Play'}
-          onPress={() => {
-            if (isPlaying) {
-              player.pause()
-            } else {
-              player.play()
-            }
-            setIsPlaying(!isPlaying)
-          }}
-        />
-      </View>
-    </View>
+    </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
-  contentContainer: {
+  container: {
     flex: 1,
-    padding: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 50,
-  },
-  video: {
-    width: 350,
-    height: 275,
-  },
-  controlsContainer: {
-    padding: 10,
+    backgroundColor: 'black',
   },
 })
+
+export default App
+*/

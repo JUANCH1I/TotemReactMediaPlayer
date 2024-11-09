@@ -3,8 +3,11 @@ import { View, StyleSheet, Image, Text, Dimensions } from 'react-native'
 import { Video } from 'expo-av'
 import { getDatabase, ref, onValue, update } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
+import { isPortrait } from './utils/portrait'
+import * as Device from 'expo-device'
+import * as Location from 'expo-location'
 
-const { width, height } = Dimensions.get('window')
+const { width: windowWidth, height: windowHeight } = Dimensions.get('window')
 
 const MediaType = {
   VIDEO: 'VIDEO',
@@ -12,7 +15,12 @@ const MediaType = {
   UNKNOWN: 'UNKNOWN',
 }
 
-export default function MediaPlayer() {
+export default function MediaPlayer({
+  width = windowWidth,
+  height = windowHeight,
+  canvaMode = false,
+  videoUrl,
+}) {
   const [playlist, setPlaylist] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [currentItem, setCurrentItem] = useState(null)
@@ -25,13 +33,13 @@ export default function MediaPlayer() {
   const [error, setError] = useState(null)
   const videoRef = useRef(null)
   const imageTimeoutRef = useRef(null)
+  const [qrUrl, setQrUrl] = useState(null)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const id = await getDeviceId()
         setDeviceId(id)
-        console.log('Device ID:', id)
         const db = getDatabase()
         const playlistRef = ref(db, `devices/${id}/playlist`)
         const volumeRef = ref(db, `devices/${id}/volume`)
@@ -86,7 +94,7 @@ export default function MediaPlayer() {
 
   useEffect(() => {
     if (deviceId) {
-      sendInitialDeviceData(deviceId)
+      //sendInitialDeviceData(deviceId)
     }
   }, [deviceId])
 
@@ -94,15 +102,36 @@ export default function MediaPlayer() {
     try {
       const deviceInfo = {
         isScreenOn: true,
-        model: 'unknown',
-        brand: 'unknown',
-        os_version: 'unknown',
-        ip_address: 'unknown',
+        model: Device.modelName,
+        brand: Device.brand,
+        os_version: Device.osVersion,
+        location: null, // Inicializamos con null
       }
 
+      // Solicitar permisos de ubicación
+      const { status } = await Location.requestForegroundPermissionsAsync()
+      if (status !== 'granted') {
+        console.log('Permission to access location was denied')
+        const db = getDatabase()
+        await update(ref(db, `devices/${id}`), deviceInfo)
+        return
+      }
+
+      // Obtener la ubicación
+      const { coords } = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      })
+
+      // Añadir la ubicación al dispositivo
+      deviceInfo.location = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      }
+
+      // Actualizar los datos del dispositivo en Firebase
       const db = getDatabase()
       await update(ref(db, `devices/${id}`), deviceInfo)
-      console.log('Device info updated')
+      console.log('Device info with location updated')
     } catch (error) {
       console.error('Error updating device info:', error)
     }
@@ -123,8 +152,6 @@ export default function MediaPlayer() {
       const mediaType = getMediaType(currentItem.videoUrl)
       setIsImage(mediaType === MediaType.IMAGE)
       setIsLoading(false)
-      console.log('Current item:', currentItem)
-      console.log('Media type:', mediaType)
 
       if (mediaType === MediaType.IMAGE) {
         clearTimeout(imageTimeoutRef.current)
@@ -133,8 +160,21 @@ export default function MediaPlayer() {
     }
   }, [currentItem])
 
+  useEffect(() => {
+    const fetchDeviceQRCode = async () => {
+      const id = await getDeviceId()
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+        id
+      )}`
+      setQrUrl(qrApiUrl)
+    }
+
+    fetchDeviceQRCode()
+  }, [])
+
   const getMediaType = (url) => {
-    if (url.includes('.mp4') || url.includes('.avi')) return MediaType.VIDEO
+    if (url.includes('.mp4') || url.includes('.avi') || url.includes('.mov'))
+      return MediaType.VIDEO
     if (url.includes('.jpg') || url.includes('.png') || url.includes('.jpeg'))
       return MediaType.IMAGE
     return MediaType.UNKNOWN
@@ -150,34 +190,39 @@ export default function MediaPlayer() {
     if (!currentItem) return null
 
     const rotationAngle = rotation || 0
-    const isPortrait = rotationAngle === 90 || rotationAngle === 270
+    //const isPortrait = rotationAngle === 90 || rotationAngle === 270
 
     // Determinar las dimensiones según la rotación
-    const videoDimensions = isPortrait
-      ? { width: height, height: width } // Si es vertical, intercambiar ancho y alto
-      : { width, height } // Si es horizontal, usar las dimensiones normales
+    const videoDimensions = isPortrait()
+      ? { width, height } // Si es vertical, intercambiar ancho y alto
+      : { width: height, height: width } // Si es horizontal, usar las dimensiones normales
 
     const rotationStyle = {
       transform: [{ rotate: `${rotationAngle}deg` }],
-      position: 'absolute', // Posicionar de manera absoluta
+      position: canvaMode ? 'relative' : 'absolute', // Posicionar de manera absoluta
       top: (height - videoDimensions.height) / 2, // Centrar verticalmente
       left: (width - videoDimensions.width) / 2, // Centrar horizontalmente
       width: videoDimensions.width,
       height: videoDimensions.height,
     }
 
+    const isLooping = playlist.length === 1
+    const videoSourceUrl = canvaMode ? videoUrl : currentItem?.videoUrl
+    console.log('videoSourceUrl:', videoSourceUrl)
+    console.log(canvaMode)
+
     if (!isImage) {
       return (
         <Video
           ref={videoRef}
-          source={{ uri: currentItem.videoUrl }}
+          source={{ uri: videoSourceUrl }}
           style={rotationStyle} // Usar el estilo calculado
           shouldPlay={true}
           isMuted={false}
-          isLooping={false}
+          isLooping={isLooping}
           resizeMode='contain' // Mantener la relación de aspecto
           onPlaybackStatusUpdate={(status) => {
-            if (status.didJustFinish) {
+            if (status.didJustFinish && !isLooping) {
               playNextItem()
             }
             if (status.isLoaded) {
@@ -224,9 +269,18 @@ export default function MediaPlayer() {
     <View style={styles.container}>
       {renderMedia()}
       {!currentItem && deviceId && (
-        <View>
+        <View
+          style={[
+            { transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }] },
+          ]}
+        >
           <Text style={styles.noContentText}>No hay contenido disponible</Text>
           <Text style={styles.noContentText}>deviceId: {deviceId}</Text>
+          {qrUrl ? (
+            <Image source={{ uri: qrUrl }} style={styles.qrCode} />
+          ) : (
+            <Text>Loading...</Text>
+          )}
         </View>
       )}
     </View>
@@ -239,17 +293,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'black',
     justifyContent: 'center',
     alignItems: 'center',
-    borderColor: 'yellow',
-    borderWidth: 1,
   },
+
   fullScreen: {
     position: 'absolute',
     top: 0,
     left: 0,
     bottom: 0,
     right: 0,
-    borderColor: 'red',
-    borderWidth: 1,
+  },
+  qrCode: {
+    width: 150,
+    height: 150,
+    marginTop: 10,
   },
   loadingText: {
     color: 'white',
