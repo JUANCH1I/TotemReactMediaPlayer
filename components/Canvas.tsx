@@ -82,11 +82,11 @@ const Canvas: React.FC = () => {
       case 'video':
         return (
           <MediaPlayer
-            width={cellWidth}
-            height={cellHeight}
-            canvaMode={true}
-            videoUrl={component.content}
-          />
+          width={cellWidth}
+          height={cellHeight}
+          canvaMode={true}
+          dropzoneIndex={component.position} // Pasar el índice aquí
+        />
         );
       case 'image':
         return (
@@ -94,7 +94,7 @@ const Canvas: React.FC = () => {
             width={cellWidth}
             height={cellHeight}
             canvaMode={true}
-            videoUrl={component.content}
+            dropzoneIndex={component.position} // Pasar el índice aquí
           />
         );
       case 'weather':

@@ -32,6 +32,7 @@
     "react-native": "npm:react-native-tvos@~0.74.5-0",
     "react-native-keychain": "^9.1.0",
     "react-native-linear-gradient": "^2.8.3",
+    "react-native-video": "^6.7.0",
     "react-native-web": "~0.19.10",
     "react-native-webview": "^13.12.3"
   },

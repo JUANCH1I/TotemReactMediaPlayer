@@ -273,9 +273,9 @@ const WeatherCard = ({
 
           <View style={styles.forecastContainer}>
             <View style={styles.forecastHeader}>
-              <Text style={styles.forecastHeaderText}>Pronóstico por hora</Text>
+              <Text style={styles.forecastHeaderText}>Hora</Text>
               <Text style={styles.forecastHeaderText}>
-                Pronóstico por semana
+                Semana
               </Text>
             </View>
             <ScrollView
