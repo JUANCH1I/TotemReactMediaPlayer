@@ -5,6 +5,7 @@ import MediaPlayer from './MediaPlayer'
 import TimeWeatherScreen from './TimeWeatherScreen'
 import YouTubePlayer from './YoutubePlayer'
 import Canvas from './Canvas'
+import Carousel from './Carousel'
 import { getDeviceId } from './utils/deviceId'
 
 const AppNavigator = () => {
@@ -61,6 +62,8 @@ const AppNavigator = () => {
         return <YouTubePlayer />
       case 'Canvas':
         return <Canvas />
+      case 'Carousel':
+        return <Carousel />
       default:
         return <MediaPlayer />
     }

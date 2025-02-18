@@ -77,7 +77,10 @@ export default function App(): JSX.Element | null {
 
         console.log("Firebase has been successfully initialized.");
 
+
         const deviceId = await getDeviceId();  // Aquí estamos esperando la función 
+        console.log("Device ID:", deviceId);
+
         await sendInitialDeviceData(deviceId);
 
         setIsFirebaseInitialized(true);

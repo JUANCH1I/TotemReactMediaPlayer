@@ -3,13 +3,14 @@ import { View, StyleSheet, Dimensions, Text } from 'react-native';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import MediaPlayer from './MediaPlayer';
 import TimeWeather from './TimeWeatherScreen';
+import Carousel from './Carousel';
 import * as Font from 'expo-font'
 import { getDeviceId } from './utils/deviceId';
 
 const { width, height } = Dimensions.get('window');
 
 interface ComponentConfig {
-  type: 'video' | 'weather' | 'image' | 'text';
+  type: 'video' | 'weather' | 'image' | 'text' | 'carrusel';
   position: number;
   content?: string;
 }
@@ -85,6 +86,14 @@ const Canvas: React.FC = () => {
           width={cellWidth}
           height={cellHeight}
           canvaMode={true}
+          dropzoneIndex={component.position} // Pasar el índice aquí
+        />
+        );
+      case 'carrusel':
+        return (
+          <Carousel
+          width={cellWidth}
+          height={cellHeight}
           dropzoneIndex={component.position} // Pasar el índice aquí
         />
         );
