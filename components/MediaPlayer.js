@@ -1,16 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { View, StyleSheet, Image, Text, Dimensions } from 'react-native'
+import { Video } from 'expo-av'
 import { getDatabase, ref, onValue, off } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
 import { isPortrait } from './utils/portrait'
-import * as FileSystem from 'expo-file-system'
-import * as Crypto from 'expo-crypto'
-import {
-  isPictureInPictureSupported,
-  useVideoPlayer,
-  VideoView,
-} from 'expo-video'
-import { useEventListener } from 'expo'
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window')
 
@@ -20,17 +13,15 @@ const MediaType = {
   UNKNOWN: 'UNKNOWN',
 }
 
-const mediaCacheDir = `${FileSystem.cacheDirectory}mediaCache/`
-
 export default function MediaPlayer({
   width = windowWidth,
   height = windowHeight,
   canvaMode = false,
-  dropzoneIndex, // Prop para canvas
+  dropzoneIndex, // Nueva prop
 }) {
   const [playlist, setPlaylist] = useState([])
   const [playlistCanvas, setPlaylistCanvas] = useState([])
-  const [currentPlaylist, setCurrentPlaylist] = useState([])
+  const [currentPlaylist, setCurrentPlaylist] = useState([]) // Lista actual según el modo
   const [currentIndex, setCurrentIndex] = useState(0)
   const [currentItem, setCurrentItem] = useState(null)
   const [isImage, setIsImage] = useState(false)
@@ -39,20 +30,10 @@ export default function MediaPlayer({
   const [isLoading, setIsLoading] = useState(true)
   const [deviceId, setDeviceId] = useState(null)
   const [error, setError] = useState(null)
-  const [localUri, setLocalUri] = useState(null)
-  const [qrUrl, setQrUrl] = useState(null)
+  const videoRef = useRef(null)
   const imageTimeoutRef = useRef(null)
+  const [qrUrl, setQrUrl] = useState(null)
 
-  // Crea el directorio de caché para media
-  useEffect(() => {
-    FileSystem.makeDirectoryAsync(mediaCacheDir, { intermediates: true })
-      .then(() => console.log('Directorio mediaCache creado'))
-      .catch((err) =>
-        console.error('Error al crear el directorio mediaCache:', err)
-      )
-  }, [])
-
-  // Configura los listeners de Firebase para playlist, volumen y rotación
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -63,6 +44,8 @@ export default function MediaPlayer({
         const playlistRef = ref(db, `devices/${id}/playlist`)
         const volumeRef = ref(db, `devices/${id}/volume`)
         const rotationRef = ref(db, `devices/${id}/rotation`)
+
+        // Verificar si estamos en modo canvas y tener un dropzoneIndex
         const playlistCanvasRef =
           canvaMode && dropzoneIndex !== undefined
             ? ref(db, `devices/${id}/playlistCanvas/${dropzoneIndex}`)
@@ -78,10 +61,9 @@ export default function MediaPlayer({
             : []
           setPlaylist(newPlaylist)
           if (!canvaMode) setCurrentPlaylist(newPlaylist)
-          cleanCacheForPlaylist(newPlaylist)
         })
 
-        // Listener para playlist canvas en modo canva
+        // Listener para playlistCanvas si está en modo canvas
         if (playlistCanvasRef) {
           onValue(playlistCanvasRef, (snapshot) => {
             const data = snapshot.val()
@@ -93,7 +75,6 @@ export default function MediaPlayer({
               : []
             setPlaylistCanvas(newCanvasPlaylist)
             if (canvaMode) setCurrentPlaylist(newCanvasPlaylist)
-            cleanCacheForPlaylist(newCanvasPlaylist)
           })
         }
 
@@ -121,6 +102,7 @@ export default function MediaPlayer({
 
     return () => {
       clearTimeout(imageTimeoutRef.current)
+      // Remover listeners de Firebase
       const db = getDatabase()
       const id = deviceId
       if (id) {
@@ -141,13 +123,23 @@ export default function MediaPlayer({
     }
   }, [canvaMode, dropzoneIndex])
 
-  // Actualiza la lista actual y reinicia el índice cuando la playlist cambia
   useEffect(() => {
     setCurrentPlaylist(canvaMode ? playlistCanvas : playlist)
-    setCurrentIndex(0)
+    setCurrentIndex(0) // Reiniciar el índice cuando cambia la playlist
   }, [canvaMode, playlist, playlistCanvas])
 
-  // Actualiza currentItem según el currentPlaylist e índice
+  useEffect(() => {
+    if (deviceId) {
+      //sendInitialDeviceData(deviceId)
+    }
+  }, [deviceId])
+
+  const playNextItem = () => {
+    if (currentPlaylist.length > 0) {
+      setCurrentIndex((prevIndex) => (prevIndex + 1) % currentPlaylist.length)
+    }
+  }
+
   useEffect(() => {
     if (currentPlaylist.length > 0) {
       setCurrentItem(currentPlaylist[currentIndex])
@@ -156,39 +148,30 @@ export default function MediaPlayer({
     }
   }, [currentPlaylist, currentIndex])
 
-  // Al cambiar currentItem, determina el tipo de media y cachea el archivo
   useEffect(() => {
     if (currentItem) {
       const mediaType = getMediaType(currentItem.videoUrl)
       setIsImage(mediaType === MediaType.IMAGE)
-      setIsLoading(true)
-      // Se usa la URL remota inicialmente
-      setLocalUri(currentItem.videoUrl)
-      // Descarga en segundo plano para cachear el archivo
-      cacheMediaFile(currentItem.videoUrl)
-        .then((cachedUri) => {
-          setLocalUri(cachedUri)
-          setIsLoading(false)
-          if (mediaType === MediaType.IMAGE) {
-            clearTimeout(imageTimeoutRef.current)
-            imageTimeoutRef.current = setTimeout(playNextItem, 20000)
-          }
-        })
-        .catch((err) => {
-          console.error('Error al cachear media:', err)
-          setIsLoading(false)
-        })
-    } else {
-      setLocalUri(null)
+      setIsLoading(false)
+
+      if (mediaType === MediaType.IMAGE) {
+        clearTimeout(imageTimeoutRef.current)
+        imageTimeoutRef.current = setTimeout(playNextItem, 20000) // 20 segundos para imágenes
+      }
     }
-    return () => clearTimeout(imageTimeoutRef.current)
   }, [currentItem])
 
-  const playNextItem = () => {
-    if (currentPlaylist.length > 0) {
-      setCurrentIndex((prevIndex) => (prevIndex + 1) % currentPlaylist.length)
+  useEffect(() => {
+    const fetchDeviceQRCode = async () => {
+      const id = await getDeviceId()
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+        id
+      )}`
+      setQrUrl(qrApiUrl)
     }
-  }
+
+    fetchDeviceQRCode()
+  }, [])
 
   const getMediaType = (url) => {
     if (url.includes('.mp4') || url.includes('.avi') || url.includes('.mov'))
@@ -199,169 +182,71 @@ export default function MediaPlayer({
   }
 
   const handleVideoError = (error) => {
-    console.error('Error al reproducir video:', error)
-    if (error && error.nativeEvent) {
-      console.error('Detalles del error:', error.nativeEvent)
-    }
+    console.error('Error playing video:', error)
     setError('Error al reproducir el video')
     playNextItem()
   }
 
-  // Función que cachea el archivo en mediaCache
-  const cacheMediaFile = async (remoteUrl) => {
-    try {
-      const cleanUrl = remoteUrl.split('?')[0]
-      console.log('Clean URL:', cleanUrl)
-      const md5Hash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.MD5,
-        remoteUrl
-      )
-      const extension = cleanUrl.substring(cleanUrl.lastIndexOf('.'))
-      const localFileName = `${md5Hash}${extension}`
-      console.log('Local file name:', localFileName)
-      const localPath = `${mediaCacheDir}${localFileName}`
-      console.log('Local path:', localPath)
-
-      const fileInfo = await FileSystem.getInfoAsync(localPath)
-      if (fileInfo.exists) {
-        return localPath
-      } else {
-        const downloadResult = await FileSystem.downloadAsync(
-          remoteUrl,
-          localPath
-        )
-        return downloadResult.uri
-      }
-    } catch (err) {
-      console.error('Error caching media file:', err)
-      return remoteUrl
-    }
-  }
-
-  const getCachedFileName = async (remoteUrl) => {
-    const md5Hash = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.MD5,
-      remoteUrl
-    )
-    const extension = remoteUrl
-      .split('?')[0]
-      .substring(remoteUrl.split('?')[0].lastIndexOf('.'))
-    return `${md5Hash}${extension}`
-  }
-
-  const cleanCacheForPlaylist = async (playlistData) => {
-    try {
-      const cachedFiles = await FileSystem.readDirectoryAsync(mediaCacheDir)
-      const validFiles = await Promise.all(
-        playlistData.map(async (item) => await getCachedFileName(item.videoUrl))
-      )
-      const filesToDelete = cachedFiles.filter(
-        (file) => !validFiles.includes(file)
-      )
-      await Promise.all(
-        filesToDelete.map(async (file) => {
-          await FileSystem.deleteAsync(`${mediaCacheDir}${file}`)
-        })
-      )
-      console.log('Archivos eliminados de caché:', filesToDelete)
-    } catch (error) {
-      console.error('Error al limpiar la caché:', error)
-    }
-  }
-
-  // Configura el reproductor usando expo-video
-  const player = useVideoPlayer('', (player) => {
-    player.audioMixingMode = 'mixWithOthers'
-    player.loop = currentPlaylist.length === 1 // Loop si hay un solo elemento
-    player.timeUpdateEventInterval = 1
-    player.volume = volume
-  })
-
-  // Cuando cambia la URL local y el item es video, se actualiza el reproductor
-  useEffect(() => {
-    if (
-      localUri &&
-      currentItem &&
-      getMediaType(currentItem.videoUrl) === MediaType.VIDEO
-    ) {
-      player.replace(localUri)
-    }
-  }, [localUri, currentItem])
-
-  // Actualiza dinámicamente el volumen
-  useEffect(() => {
-    if (player) {
-      player.volume = volume
-    }
-  }, [volume])
-
-  // Actualiza la propiedad de looping según la playlist
-  useEffect(() => {
-    if (player) {
-      player.loop = currentPlaylist.length === 1
-    }
-  }, [currentPlaylist])
-
-  // Escucha los cambios de estado del reproductor para pasar al siguiente video
-  useEventListener(player, 'statusChange', ({ status }) => {
-    if (status === 'idle') {
-      playNextItem()
-    } else if (status === 'readyToPlay' && !player.playing) {
-      player.play()
-    }
-  })
-
   const renderMedia = () => {
-    if (!currentItem || !localUri) return null
+    if (!currentItem) return null
 
-    // Calcula el estilo de rotación y posición
     const rotationAngle = rotation || 0
-    const videoDimensions = isPortrait() ? { width, height } : { width, height }
+
+    // Determinar las dimensiones según la rotación
+    const videoDimensions = isPortrait()
+      ? { width, height } // Si es vertical, intercambiar ancho y alto
+      : { width, height } // Si es horizontal, usar las dimensiones normales
+
     const rotationStyle = {
       transform: [{ rotate: `${rotationAngle}deg` }],
-      position: canvaMode ? 'relative' : 'absolute',
-      top: (height - videoDimensions.height) / 2,
-      left: (width - videoDimensions.width) / 2,
+      position: canvaMode ? 'relative' : 'absolute', // Posicionar de manera relativa en canvas
+      top: (height - videoDimensions.height) / 2, // Centrar verticalmente
+      left: (width - videoDimensions.width) / 2, // Centrar horizontalmente
       width: videoDimensions.width,
       height: videoDimensions.height,
     }
 
-    if (getMediaType(currentItem.videoUrl) === MediaType.VIDEO) {
+    const isLooping = currentPlaylist.length === 1
+    const videoSourceUrl = currentItem?.videoUrl
+
+    if (!isImage) {
       return (
-        <VideoView
+        <Video
+          ref={videoRef}
+          source={{ uri: videoSourceUrl }}
           style={rotationStyle}
-          player={player}
-          contentFit='contain'
-          nativeControls={false}
-          allowsFullscreen
-          allowsPictureInPicture={isPictureInPictureSupported()}
-          startsPictureInPictureAutomatically={isPictureInPictureSupported()}
+          shouldPlay={true}
+          isMuted={false}
+          isLooping={isLooping}
+          resizeMode='contain' // Mantener la relación de aspecto
+          onPlaybackStatusUpdate={(status) => {
+            if (status.didJustFinish && !isLooping) {
+              playNextItem()
+            }
+            if (status.isLoaded) {
+              setIsLoading(false)
+            }
+          }}
+          onError={handleVideoError}
+          volume={volume}
+          useNativeControls={false}
         />
       )
-    } else if (getMediaType(currentItem.videoUrl) === MediaType.IMAGE) {
+    } else {
       return (
         <Image
-          source={{ uri: localUri }}
+          source={{ uri: videoSourceUrl }}
           style={rotationStyle}
-          resizeMode='contain'
+          resizeMode='contain' // Mantener la relación de aspecto
           onLoad={() => setIsLoading(false)}
-          onError={handleVideoError}
+          onError={() => {
+            setError('Error al cargar la imagen')
+            playNextItem()
+          }}
         />
       )
     }
-    return null
   }
-
-  useEffect(() => {
-    const fetchDeviceQRCode = async () => {
-      const id = await getDeviceId()
-      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-        id
-      )}`
-      setQrUrl(qrApiUrl)
-    }
-    fetchDeviceQRCode()
-  }, [])
 
   if (isLoading) {
     return (
@@ -369,9 +254,9 @@ export default function MediaPlayer({
         {renderMedia()}
         {!currentItem && deviceId && (
           <View
-            style={{
-              transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }],
-            }}
+            style={[
+              { transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }] },
+            ]}
           >
             <Text style={styles.noContentText}>
               No hay contenido disponible
@@ -401,7 +286,9 @@ export default function MediaPlayer({
       {renderMedia()}
       {!currentItem && deviceId && (
         <View
-          style={{ transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }] }}
+          style={[
+            { transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }] },
+          ]}
         >
           <Text style={styles.noContentText}>No hay contenido disponible</Text>
           <Text style={styles.noContentText}>deviceId: {deviceId}</Text>
@@ -423,6 +310,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   fullScreen: {
     position: 'absolute',
     top: 0,
