@@ -1,5 +1,9 @@
 {
   "expo": {
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD"
+    },
     "plugins": [
       [
         "@react-native-tvos/config-tv",
@@ -16,7 +20,21 @@
           }
         }
       ],
-      "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Totem to access your photos.",
+          "savePhotosPermission": "Allow Totem to save photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
       "expo-font"
     ],
     "name": "Totem",
