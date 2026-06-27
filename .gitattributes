@@ -1,0 +1,13 @@
+# Normaliza los fines de línea: el repo siempre guarda LF.
+# Evita el ruido de CRLF cuando se edita desde Windows.
+* text=auto eol=lf
+
+# Binarios: nunca tocar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.keystore binary
+*.jks binary
