@@ -2,7 +2,12 @@
   "expo": {
     "updates": {
       "enabled": true,
-      "checkAutomatically": "ON_LOAD"
+      "checkAutomatically": "ON_LOAD",
+      "url": "https://u.expo.dev/d1457a0d-6598-499b-b9c1-0017b0ed1754",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
     },
     "plugins": [
       [
