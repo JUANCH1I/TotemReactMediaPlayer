@@ -9,6 +9,7 @@ import * as Location from 'expo-location'
 import * as Device from 'expo-device'
 import { useKeepAwake } from 'expo-keep-awake'
 import ErrorBoundary from './components/ErrorBoundary'
+import { useDeviceMonitor } from './components/utils/useDeviceMonitor'
 
 
 
@@ -66,6 +67,7 @@ const sendInitialDeviceData = async (id) => {
 // Main App component
 export default function App(): JSX.Element | null {
   useKeepAwake(); // la pantalla del totem nunca se duerme
+  useDeviceMonitor(); // heartbeat + comandos remotos
   const [isFirebaseInitialized, setIsFirebaseInitialized] = useState<boolean>(false);
 
   useEffect(() => {

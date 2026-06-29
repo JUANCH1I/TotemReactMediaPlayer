@@ -305,11 +305,28 @@ export default function MediaPlayer({
     })
   }, [])
 
-  const mediaStyle = [
-    canvaMode ? styles.relative : styles.fullScreen,
-    { width, height },
-    rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null,
-  ]
+  // Rotación por SOFTWARE (reemplaza el ADB que corrompía las TVs). En 90/270
+  // se intercambian dimensiones y se centra para llenar la pantalla física.
+  const rotated90 = rotation === 90 || rotation === 270
+  const fsWidth = rotated90 ? height : width
+  const fsHeight = rotated90 ? width : height
+
+  const mediaStyle = canvaMode
+    ? [
+        styles.relative,
+        { width, height },
+        rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null,
+      ]
+    : [
+        styles.fullScreen,
+        {
+          width: fsWidth,
+          height: fsHeight,
+          left: (width - fsWidth) / 2,
+          top: (height - fsHeight) / 2,
+          transform: rotation ? [{ rotate: `${rotation}deg` }] : undefined,
+        },
+      ]
 
   const renderMedia = () => {
     if (!currentItem || !localUri) return null
@@ -384,10 +401,6 @@ const styles = StyleSheet.create({
   },
   fullScreen: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    right: 0,
   },
   relative: {
     position: 'relative',
