@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, Dimensions } from 'react-native'
 import { Image } from 'expo-image'
 import { getDatabase, ref, onValue } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   useVideoPlayer,
   VideoView,
@@ -21,6 +22,7 @@ const { width: windowWidth, height: windowHeight } = Dimensions.get('window')
 
 const DEFAULT_IMAGE_SECONDS = 20
 const FAILSAFE_ADVANCE_MS = 2000 // al fallar un item, esperamos antes de saltar
+const PLAYLIST_CACHE_KEY = 'lastPlaylist' // resiliencia: última playlist conocida
 
 export default function MediaPlayer({
   width = windowWidth,
@@ -85,6 +87,22 @@ export default function MediaPlayer({
     cacheMediaFile(url).catch(() => prefetchedRef.current.delete(url))
   }
 
+  // Resiliencia offline: muestra la última playlist conocida hasta que Firebase
+  // responda (o si el totem arranca sin internet; los archivos siguen en caché).
+  useEffect(() => {
+    if (canvaMode) return
+    AsyncStorage.getItem(PLAYLIST_CACHE_KEY).then((cached) => {
+      if (!cached) return
+      try {
+        const saved = JSON.parse(cached)
+        if (Array.isArray(saved) && saved.length > 0) {
+          setPlaylist((prev) => (prev.length === 0 ? saved : prev))
+          setIsLoading(false)
+        }
+      } catch (_) {}
+    })
+  }, [canvaMode])
+
   // --- Listeners de Firebase (playlist, volumen, rotación) ---
   useEffect(() => {
     let cancelled = false
@@ -116,6 +134,13 @@ export default function MediaPlayer({
               : []
             setPlaylist(list)
             setIsLoading(false) // Firebase ya respondió (haya o no contenido)
+            if (!canvaMode && list.length > 0) {
+              // Persiste para que el totem arranque con contenido aunque no haya red.
+              AsyncStorage.setItem(
+                PLAYLIST_CACHE_KEY,
+                JSON.stringify(list)
+              ).catch(() => {})
+            }
             maybeCleanCache(list)
           })
         )
