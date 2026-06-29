@@ -10,22 +10,24 @@ import {
 } from 'firebase/database'
 import * as Updates from 'expo-updates'
 import { getDeviceId } from './deviceId'
+import { RemoteCommand } from '../types'
 
 const HEARTBEAT_MS = 30000 // late cada 30s para que el dashboard sepa que está vivo
+
+type CommandPayload = RemoteCommand | { action?: RemoteCommand } | null
 
 /**
  * Observabilidad y control remoto del totem (bloque 2):
  * - Heartbeat: escribe status/lastSeen para saber qué totems están vivos.
  * - onDisconnect: marca offline automáticamente al cortarse la conexión.
  * - Comandos remotos: el dashboard escribe en devices/{id}/command y la app
- *   reacciona (reload, restart, checkUpdate). La rotación se controla aparte,
- *   por la prop `rotation` (rotación por software, NUNCA ADB).
+ *   reacciona. La rotación se controla aparte (prop rotation, por software).
  */
-export function useDeviceMonitor() {
+export function useDeviceMonitor(): void {
   useEffect(() => {
     let cancelled = false
-    let heartbeatTimer = null
-    let unsubscribeCommand = null
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+    let unsubscribeCommand: (() => void) | null = null
 
     const setup = async () => {
       const id = await getDeviceId()
@@ -35,7 +37,6 @@ export function useDeviceMonitor() {
       const statusRef = ref(db, `devices/${id}/status`)
       const commandRef = ref(db, `devices/${id}/command`)
 
-      // Heartbeat periódico.
       const beat = () => {
         update(deviceRef, {
           status: 'online',
@@ -50,7 +51,7 @@ export function useDeviceMonitor() {
 
       // Comandos remotos: se ejecutan una vez y se limpian para no repetirse.
       unsubscribeCommand = onValue(commandRef, (snapshot) => {
-        const command = snapshot.val()
+        const command = snapshot.val() as CommandPayload
         if (!command) return
         set(commandRef, null).catch(() => {})
         executeCommand(command)
@@ -67,8 +68,9 @@ export function useDeviceMonitor() {
   }, [])
 }
 
-async function executeCommand(command) {
-  const action = typeof command === 'string' ? command : command?.action
+async function executeCommand(command: CommandPayload): Promise<void> {
+  const action: RemoteCommand | undefined =
+    typeof command === 'string' ? command : command?.action
   try {
     switch (action) {
       case 'reload':
@@ -87,6 +89,10 @@ async function executeCommand(command) {
         console.warn('[deviceMonitor] comando desconocido:', action)
     }
   } catch (err) {
-    console.warn('[deviceMonitor] error ejecutando comando:', action, err?.message)
+    console.warn(
+      '[deviceMonitor] error ejecutando comando:',
+      action,
+      (err as Error)?.message
+    )
   }
 }

@@ -6,23 +6,9 @@ import TimeWeather from './TimeWeatherScreen';
 import Carousel from './Carousel';
 import * as Font from 'expo-font'
 import { getDeviceId } from './utils/deviceId';
+import { ComponentConfig, TotemConfig } from './types';
 
 const { width, height } = Dimensions.get('window');
-
-interface ComponentConfig {
-  type: 'video' | 'weather' | 'image' | 'text' | 'carrusel';
-  position: number;
-  content?: string;
-}
-
-interface TotemConfig {
-  layout: {
-    rows: number;
-    cols: number;
-  };
-  components: ComponentConfig[];
-  design: 'default' | 'modern' | 'classic';
-}
 
 const Canvas: React.FC = () => {
   const [config, setConfig] = useState<TotemConfig | null>(null);
