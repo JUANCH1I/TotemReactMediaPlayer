@@ -3,7 +3,6 @@ import { View, StyleSheet } from 'react-native'
 import { getDatabase, ref, onValue, off } from 'firebase/database'
 import MediaPlayer from './MediaPlayer'
 import TimeWeatherScreen from './TimeWeatherScreen'
-import YouTubePlayer from './YoutubePlayer'
 import Canvas from './Canvas'
 import Carousel from './Carousel'
 import { getDeviceId } from './utils/deviceId'
@@ -58,8 +57,6 @@ const AppNavigator = () => {
         return <MediaPlayer />
       case 'TimeWeather':
         return <TimeWeatherScreen />
-      case 'YoutubePlayer':
-        return <YouTubePlayer />
       case 'Canvas':
         return <Canvas />
       case 'Carousel':

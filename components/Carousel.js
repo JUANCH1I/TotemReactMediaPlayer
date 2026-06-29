@@ -1,14 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
-import {
-  View,
-  Animated,
-  StyleSheet,
-  Dimensions,
-  Text,
-  Image,
-  Easing,
-} from 'react-native'
-import { getDatabase, ref, onValue, off } from 'firebase/database'
+import { View, Animated, StyleSheet, Dimensions, Text, Easing } from 'react-native'
+import { Image } from 'expo-image'
+import { getDatabase, ref, onValue } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window')
@@ -20,83 +13,71 @@ export default function ImageCarousel({
   dropzoneIndex,
 }) {
   const [playlist, setPlaylist] = useState([])
-  const [deviceId, setDeviceId] = useState(null)
   const [error, setError] = useState(null)
   const scrollX = useRef(new Animated.Value(0)).current
 
+  // Suscripción a la playlist del dropzone. Deps [dropzoneIndex]: el deviceId se
+  // resuelve adentro, así no se re-suscribe dos veces (antes dependía de deviceId,
+  // que arrancaba null y se seteaba dentro => doble listener).
   useEffect(() => {
+    let cancelled = false
+    let unsubscribe = null
+
     const fetchData = async () => {
       try {
         const id = await getDeviceId()
-        setDeviceId(id)
-
+        if (cancelled) return
         const db = getDatabase()
-        const playlistRef = ref(
-          db,
-          `devices/${id}/playlistCanvas/${dropzoneIndex}`
-        )
+        const playlistRef = ref(db, `devices/${id}/playlistCanvas/${dropzoneIndex}`)
 
-        // Listener para la playlist
-        onValue(playlistRef, (snapshot) => {
+        // onValue devuelve su propia función de desuscripción (antes el cleanup
+        // hacía off() sobre otra ruta => el listener real nunca se soltaba).
+        unsubscribe = onValue(playlistRef, (snapshot) => {
           const data = snapshot.val()
-
-          const newPlaylist = data
-            ? Object.keys(data).map((key) => data[key].videoUrl)
-            : []
-
-          // Ajustar el filtro para ignorar los parámetros de la URL
-          const filteredPlaylist = newPlaylist.filter((url) => {
+          const urls = data ? Object.keys(data).map((k) => data[k].videoUrl) : []
+          const filtered = urls.filter((url) => {
             try {
-              const path = new URL(url).pathname // Extrae solo el path sin los parámetros
-              return path.match(/\.(jpg|jpeg|png)$/i) // Filtrar por extensión válida
-            } catch (error) {
-              console.error('Error procesando URL:', url, error)
+              return /\.(jpg|jpeg|png|webp|gif)$/i.test(new URL(url).pathname)
+            } catch {
               return false
             }
           })
-
-          console.log('URLs después del filtro:', filteredPlaylist)
-
-          setPlaylist(filteredPlaylist)
+          setPlaylist(filtered)
         })
       } catch (err) {
         console.error('Error fetching data:', err)
-        setError('Error al cargar la playlist desde Firebase')
+        if (!cancelled) setError('Error al cargar la playlist desde Firebase')
       }
     }
 
     fetchData()
 
-    // Cleanup listeners on unmount
     return () => {
-      if (deviceId) {
-        const db = getDatabase()
-        const playlistRef = ref(db, `devices/${deviceId}/playlist`)
-        off(playlistRef)
-      }
+      cancelled = true
+      if (unsubscribe) unsubscribe()
     }
-  }, [deviceId])
+  }, [dropzoneIndex])
 
+  // Animación de scroll continuo. Se detiene al desmontar (antes quedaba viva).
   useEffect(() => {
-    if (playlist.length > 0) {
-      const totalWidth = windowWidth * playlist.length
-
-      scrollX.setValue(0)
-
-      Animated.loop(
-        Animated.timing(scrollX, {
-          toValue: -totalWidth,
-          duration: speed * playlist.length,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      ).start()
-    }
-  }, [playlist, scrollX, speed])
+    if (playlist.length === 0) return
+    const totalWidth = width * playlist.length
+    scrollX.setValue(0)
+    const animation = Animated.loop(
+      Animated.timing(scrollX, {
+        toValue: -totalWidth,
+        duration: speed * playlist.length,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    )
+    animation.start()
+    return () => animation.stop()
+  }, [playlist, scrollX, speed, width])
 
   if (error) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.center, { width, height }]}>
         <Text style={styles.errorText}>{error}</Text>
       </View>
     )
@@ -104,31 +85,29 @@ export default function ImageCarousel({
 
   if (playlist.length === 0) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.center, { width, height }]}>
         <Text style={styles.noContentText}>No hay contenido disponible</Text>
       </View>
     )
   }
 
   return (
-    <View style={styles.carouselContainer}>
+    <View style={[styles.carouselContainer, { width, height }]}>
       <Animated.View
         style={{
           flexDirection: 'row',
-          width: windowWidth * playlist.length * 2,
-          transform: [
-            {
-              translateX: scrollX,
-            },
-          ],
+          width: width * playlist.length * 2,
+          height: '100%',
+          transform: [{ translateX: scrollX }],
         }}
       >
         {[...playlist, ...playlist].map((uri, index) => (
           <Image
-            key={index}
+            key={`${uri}-${index}`}
             source={{ uri }}
-            style={[styles.image, { width: windowWidth }]}
-            resizeMode='contain' // Mantiene el aspecto de la imagen sin recortes
+            style={{ width, height }}
+            contentFit="contain"
+            cachePolicy="memory-disk"
           />
         ))}
       </Animated.View>
@@ -137,19 +116,13 @@ export default function ImageCarousel({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  center: {
     backgroundColor: 'black',
     justifyContent: 'center',
     alignItems: 'center',
   },
   carouselContainer: {
-    width: windowWidth,
-    height: windowHeight / 2,
     overflow: 'hidden',
-  },
-  image: {
-    height: windowHeight / 2,
   },
   errorText: {
     color: 'red',
