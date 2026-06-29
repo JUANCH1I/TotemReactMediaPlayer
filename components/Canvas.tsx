@@ -57,6 +57,7 @@ const Canvas: React.FC = () => {
       console.log('Config data:', data);
       if (data && isValidConfig(data)) {
         setConfig(data as TotemConfig);
+        setError(null); // limpia un error previo cuando vuelve a llegar config válida
       } else {
         setError('Configuración inválida o no encontrada para este dispositivo');
       }
@@ -68,13 +69,28 @@ const Canvas: React.FC = () => {
   }, [deviceId]);
 
   const isValidConfig = (data: any): data is TotemConfig => {
-    return (
-      data &&
-      typeof data.layout === 'object' &&
-      typeof data.layout.rows === 'number' &&
-      typeof data.layout.cols === 'number' &&
-      Array.isArray(data.components) &&
-      typeof data.design === 'string'
+    if (
+      !data ||
+      typeof data.layout !== 'object' ||
+      typeof data.layout.rows !== 'number' ||
+      typeof data.layout.cols !== 'number' ||
+      data.layout.rows <= 0 || // evita división por cero en cellHeight
+      data.layout.cols <= 0 || // evita división por cero en cellWidth
+      !Array.isArray(data.components) ||
+      typeof data.design !== 'string'
+    ) {
+      return false;
+    }
+    // Cada componente debe tener un type y una position dentro del grid; si no,
+    // su celda quedaría con NaN o fuera de pantalla.
+    const cellCount = data.layout.rows * data.layout.cols;
+    return data.components.every(
+      (c: any) =>
+        c &&
+        typeof c.type === 'string' &&
+        typeof c.position === 'number' &&
+        c.position >= 0 &&
+        c.position < cellCount
     );
   };
 
