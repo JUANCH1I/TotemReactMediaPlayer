@@ -632,9 +632,14 @@ export default function MediaPlayer({
   const renderMedia = () => {
     if (!currentItem || !localUri) return null
 
-    // Calcula el estilo de rotación y posición
-    const rotationAngle = rotation || 0
-    const videoDimensions = isPortrait() ? { width, height } : { width, height }
+    // Calcula el estilo de rotación y posición. Un giro de 90 o 270 grados
+    // intercambia los lados, así que el contenido se mide al revés y después
+    // se recentra sobre la pantalla.
+    const rotationAngle = ((rotation || 0) % 360 + 360) % 360
+    const isQuarterTurn = rotationAngle === 90 || rotationAngle === 270
+    const videoDimensions = isQuarterTurn
+      ? { width: height, height: width }
+      : { width, height }
     const rotationStyle = {
       transform: [{ rotate: `${rotationAngle}deg` }],
       position: canvaMode ? 'relative' : 'absolute',
@@ -649,6 +654,11 @@ export default function MediaPlayer({
         <VideoView
           style={rotationStyle}
           player={player}
+          // A SurfaceView ignores view transforms, so a rotated screen needs a
+          // TextureView for the frames to rotate with the container. The prop
+          // cannot change at runtime, so the key remounts the view instead.
+          key={isQuarterTurn ? 'video-texture' : 'video-surface'}
+          surfaceType={isQuarterTurn ? 'textureView' : 'surfaceView'}
           contentFit='contain'
           nativeControls={false}
           allowsFullscreen
