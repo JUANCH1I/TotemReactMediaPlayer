@@ -1,26 +1,45 @@
 import React, { useState, useEffect } from 'react'
 import { View, StyleSheet } from 'react-native'
-import { getDatabase, ref, onValue, off } from 'firebase/database'
+import { getDatabase, ref, onValue } from 'firebase/database'
 import MediaPlayer from './MediaPlayer'
 import TimeWeatherScreen from './TimeWeatherScreen'
-import YouTubePlayer from './YoutubePlayer'
 import Canvas from './Canvas'
 import Carousel from './Carousel'
 import { getDeviceId } from './utils/deviceId'
+
+const SCREEN_COMPONENTS = Object.freeze({
+  MediaPlayer,
+  TimeWeather: TimeWeatherScreen,
+  Canvas,
+  Carousel,
+})
+
+function resolveScreenComponent(screenName, screenComponents) {
+  return Object.prototype.hasOwnProperty.call(screenComponents, screenName)
+    ? screenComponents[screenName]
+    : screenComponents.MediaPlayer
+}
 
 const AppNavigator = () => {
   const [currentScreen, setCurrentScreen] = useState('MediaPlayer')
 
   useEffect(() => {
-    const fetchData = async () => {
+    let isMounted = true
+    let unsubscribe = null
+
+    const subscribeToScreen = async () => {
       try {
         const deviceId = await getDeviceId()
+        if (!isMounted) return
+
         console.log('Device ID:', deviceId)
         const db = getDatabase()
         const screenRef = ref(db, `devices/${deviceId}/currentScreen`)
         console.log('Screen ref:', screenRef)
 
-        onValue(screenRef, (snapshot) => {
+        unsubscribe = onValue(screenRef, (snapshot) => {
+          if (!isMounted) return
+
           const screenValue = snapshot.val()
           if (screenValue) {
             console.log('Screen value:', screenValue)
@@ -28,48 +47,32 @@ const AppNavigator = () => {
           }
         })
       } catch (error) {
-        console.error('Error fetching screen data:', error)
+        if (isMounted) {
+          console.error('Error fetching screen data:', error)
+        }
       }
     }
 
-    fetchData()
+    subscribeToScreen()
 
     return () => {
-      const cleanup = async () => {
-        try {
-          const deviceId = await getDeviceId() // Obtener el ID del dispositivo para limpiar
-          console.log('Cleaning up for device ID:', deviceId)
-          const db = getDatabase()
-          const screenRef = ref(db, `devices/${deviceId}/currentScreen`)
-          off(screenRef) // Desconectar la escucha de los cambios
-        } catch (error) {
-          console.error('Error during cleanup:', error)
-        }
-      }
-
-      cleanup()
+      isMounted = false
+      unsubscribe?.()
+      unsubscribe = null
     }
   }, [])
 
-  const renderScreen = () => {
-    console.log('Current screen:', currentScreen)
-    switch (currentScreen) {
-      case 'MediaPlayer':
-        return <MediaPlayer />
-      case 'TimeWeather':
-        return <TimeWeatherScreen />
-      case 'YoutubePlayer':
-        return <YouTubePlayer />
-      case 'Canvas':
-        return <Canvas />
-      case 'Carousel':
-        return <Carousel />
-      default:
-        return <MediaPlayer />
-    }
-  }
+  console.log('Current screen:', currentScreen)
+  const ScreenComponent = resolveScreenComponent(
+    currentScreen,
+    SCREEN_COMPONENTS
+  )
 
-  return <View style={styles.container}>{renderScreen()}</View>
+  return (
+    <View style={styles.container}>
+      <ScreenComponent />
+    </View>
+  )
 }
 
 const styles = StyleSheet.create({
