@@ -97,7 +97,7 @@ async function loadModule() {
   const module = new vm.SourceTextModule(source, { context })
   await module.link(async (specifier) => {
     const values =
-      specifier === 'expo-file-system' ? fileSystemExports : cryptoExports
+      specifier.startsWith('expo-file-system') ? fileSystemExports : cryptoExports
     return new vm.SyntheticModule(
       Object.keys(values),
       function initialize() {

@@ -113,7 +113,7 @@ async function loadManagerClass() {
 
   await module.link(async (specifier) => {
     const values =
-      specifier === 'expo-file-system' ? fileSystemExports : cryptoExports
+      specifier.startsWith('expo-file-system') ? fileSystemExports : cryptoExports
     const dependency = new vm.SyntheticModule(
       Object.keys(values),
       function initialize() {

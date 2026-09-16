@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
 
 export const PLAYLIST_MANIFEST_VERSION = 1
 export const MAX_PLAYLIST_ITEMS = 100

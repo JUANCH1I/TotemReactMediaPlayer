@@ -100,7 +100,7 @@ const registerDeviceInBackground = (): void => {
   }
 };
 
-export default function App(): JSX.Element {
+export default function App(): React.JSX.Element {
   const [initializationState, setInitializationState] =
     useState<InitializationState>('initializing');
   const [initializationAttempt, setInitializationAttempt] = useState(0);
