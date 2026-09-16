@@ -27,7 +27,9 @@
           "supportsPictureInPicture": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-splash-screen",
+      "expo-status-bar"
     ],
     "name": "Totem",
     "slug": "Totem",
