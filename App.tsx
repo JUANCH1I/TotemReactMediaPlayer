@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Platform,
+  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
-  useTVEventHandler,
 } from 'react-native';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
@@ -29,9 +29,11 @@ import { nativeApplicationVersion } from 'expo-application';
 // its own instead of waiting for someone to pick up the remote.
 const RETRY_DELAY_SECONDS = 20;
 
-// Held, not pressed: a guest pressing OK on the remote must never land in the
-// service screen by accident.
-const MAINTENANCE_EVENT = 'longSelect';
+// The service screen is opened from a small target in a corner rather than a
+// key combination: the TV event API on this player never delivered a single
+// key to JavaScript on a real television, while ordinary focus and press work.
+// It is the only focusable thing on screen, so an installer reaches it with an
+// arrow and confirms, and a guest has nothing to press by accident.
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCvF1N2eHIfulW3KhvRbc4zT-QU8CkRHbA',
@@ -176,12 +178,6 @@ export default function App(): React.JSX.Element {
     }
   }, []);
 
-  useTVEventHandler((event: { eventType: string }) => {
-    if (event.eventType === MAINTENANCE_EVENT) {
-      setMaintenanceVisible(true);
-    }
-  });
-
   // The status screens ask for Nunito; until it arrives the system face stands
   // in, so a slow font never holds up playback.
   useFonts({
@@ -266,6 +262,18 @@ export default function App(): React.JSX.Element {
     <SafeAreaView style={styles.container}>
       <StatusBar hidden />
       <AppNavigator />
+      {!maintenanceVisible ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Abrir mantenimiento"
+          hasTVPreferredFocus
+          onPress={() => setMaintenanceVisible(true)}
+          style={({ focused }) => [
+            styles.serviceTarget,
+            { opacity: focused ? 0.9 : 0.05 },
+          ]}
+        />
+      ) : null}
       {maintenanceVisible ? (
         <MaintenanceScreen
           deviceId={deviceId}
@@ -280,5 +288,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'black',
+  },
+  serviceTarget: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#F2B441',
   },
 });

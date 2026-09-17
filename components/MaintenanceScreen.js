@@ -36,10 +36,13 @@ const KEY_ROWS = [
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
-const Key = ({ label, onPress, wide = false, tone = 'normal', size }) => (
+// focusFirst matters more than it looks: a television screen that opens with
+// nothing focused swallows every press of the remote.
+const Key = ({ label, onPress, wide = false, tone = 'normal', size, focusFirst = false }) => (
   <Pressable
     accessibilityRole='button'
     accessibilityLabel={label}
+    hasTVPreferredFocus={focusFirst}
     onPress={onPress}
     style={({ focused, pressed }) => [
       styles.key,
@@ -179,7 +182,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
       ) : null}
 
       <View style={[styles.row, { marginTop: type.body * 1.2 }]}>
-        <Key label='Configurar red' onPress={scan} wide size={type.body} />
+        <Key label='Configurar red' onPress={scan} wide size={type.body} focusFirst />
         <Key label='Salir' onPress={onClose} wide tone='danger' size={type.body} />
       </View>
     </View>
@@ -187,7 +190,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
 
   const renderNetworks = () => (
     <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>Elegí una red</Text>
+      <Text style={[styles.title, { fontSize: type.title }]}>Elige una red</Text>
 
       <ScrollView style={{ maxHeight: frameHeight * 0.55, marginTop: type.body }}>
         {networks.map((network, index) => (
@@ -225,7 +228,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
       </ScrollView>
 
       <View style={[styles.row, { marginTop: type.body }]}>
-        <Key label='Volver' onPress={() => setStep('overview')} wide size={type.body} />
+        <Key label='Volver' onPress={() => setStep('overview')} wide size={type.body} focusFirst={networks.length === 0} />
       </View>
     </View>
   )
@@ -250,6 +253,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
                 key={character}
                 label={label}
                 size={type.key}
+                focusFirst={rowIndex === 0 && character === 'a'}
                 onPress={() => appendKey(label)}
               />
             )
@@ -278,7 +282,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
         Esta red es abierta, no necesita clave.
       </Text>
       <View style={[styles.row, { marginTop: type.body }]}>
-        <Key label='Conectar' size={type.body} wide onPress={connect} />
+        <Key label='Conectar' size={type.body} wide focusFirst onPress={connect} />
         <Key label='Cancelar' size={type.body} wide tone='danger' onPress={() => setStep('networks')} />
       </View>
     </View>
