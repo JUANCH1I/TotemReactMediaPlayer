@@ -10,6 +10,9 @@ import android.content.pm.PackageManager
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -24,6 +27,10 @@ import expo.modules.kotlin.modules.ModuleDefinition
 // and this module reports notOwner so the app can fall back to the system
 // screens instead of pretending.
 class KioskModule : Module() {
+  // Held for as long as the network must stay up: Android shuts the hotspot
+  // down as soon as the reservation is released.
+  private var hotspot: WifiManager.LocalOnlyHotspotReservation? = null
+
   private val context: Context
     get() = requireNotNull(appContext.reactContext) { "React context is not available" }
 
@@ -161,6 +168,58 @@ class KioskModule : Module() {
       wifiManager.reconnect()
 
       enabled
+    }
+
+    // A totem with no network cannot be configured from the dashboard, so it
+    // offers its own: the installer joins it from a phone and types the venue
+    // password there. Only works if the television's Wi-Fi chip can act as an
+    // access point, which many cannot.
+    AsyncFunction("startSetupHotspot") { promise: Promise ->
+      var settled = false
+      val callback = object : WifiManager.LocalOnlyHotspotCallback() {
+        override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+          if (settled) return
+          settled = true
+          hotspot?.close()
+          hotspot = reservation
+
+          val ssid: String?
+          val password: String?
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val configuration = reservation.softApConfiguration
+            ssid = configuration.ssid
+            password = configuration.passphrase
+          } else {
+            @Suppress("DEPRECATION")
+            val configuration = reservation.wifiConfiguration
+            ssid = configuration?.SSID
+            @Suppress("DEPRECATION")
+            password = configuration?.preSharedKey
+          }
+
+          promise.resolve(mapOf("ssid" to ssid, "password" to password))
+        }
+
+        override fun onFailed(reason: Int) {
+          if (settled) return
+          settled = true
+          promise.reject(CodedException("ERR_HOTSPOT_FAILED", "Reason $reason", null))
+        }
+      }
+
+      try {
+        wifiManager.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
+      } catch (error: Throwable) {
+        if (!settled) {
+          settled = true
+          promise.reject(CodedException("ERR_HOTSPOT_UNAVAILABLE", String(error.toString().toCharArray()), null))
+        }
+      }
+    }
+
+    Function<Unit>("stopSetupHotspot") { ->
+      hotspot?.close()
+      hotspot = null
     }
 
     Function("currentNetwork") { ->
