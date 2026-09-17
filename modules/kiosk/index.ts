@@ -16,6 +16,8 @@ declare class KioskModule extends NativeModule {
   /** Pins this app as the home screen, over the television's own launcher. */
   setAsHome(): void;
   clearHome(): void;
+  /** Gives the television back: unlocks, drops the home pin and the ownership. */
+  releaseDevice(): void;
   /** A device owner grants itself what a scan needs, with no dialogs. */
   grantWifiPermissions(): void;
   scanNetworks(): WifiNetwork[];

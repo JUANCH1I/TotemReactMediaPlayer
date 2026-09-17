@@ -75,14 +75,26 @@ const Key = ({ label, onPress, wide = false, tone = 'normal', size, focusFirst =
   </Pressable>
 )
 
+// Without a code the screen is one press away from any guest with the remote.
+// The default is the last four digits of the device code, which a technician
+// can read off the pairing screen, and the dashboard can set another one per
+// totem. Digits only: the device code is hexadecimal, and a keypad on a remote
+// has no letters, so the letters in it could never be typed.
+const defaultPin = (deviceId) =>
+  String(deviceId ?? '')
+    .replace(/\D/g, '')
+    .slice(-4)
+    .padStart(4, '0')
+
 /**
  * @param {{
  *   deviceId?: string | null,
+ *   pin?: string | null,
  *   rotation?: number,
  *   onClose: () => void,
  * }} props
  */
-const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
+const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose }) => {
   const { width, height } = useWindowDimensions()
   const angle = ((rotation || 0) % 360 + 360) % 360
   const isQuarterTurn = angle === 90 || angle === 270
@@ -99,7 +111,8 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
     [shortSide]
   )
 
-  const [step, setStep] = useState('overview')
+  const [step, setStep] = useState('pin')
+  const [typedPin, setTypedPin] = useState('')
   const [networks, setNetworks] = useState([])
   const [selected, setSelected] = useState(null)
   const [password, setPassword] = useState('')
@@ -121,8 +134,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
   // front of the screen cannot count on a cable or a command from outside.
   const release = useCallback(() => {
     try {
-      Kiosk.unlock()
-      Kiosk.clearHome()
+      Kiosk.releaseDevice()
       setLocked(false)
       setStatus('Pantalla liberada. El televisor vuelve a su menú normal.')
     } catch (error) {
@@ -181,6 +193,63 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
   }, [password, readCurrentNetwork, selected])
 
   const appendKey = (character) => setPassword((value) => value + character)
+
+  const expectedPin = (pin ?? defaultPin(deviceId)).toString()
+
+  const appendPin = (digit) => {
+    const next = typedPin + digit
+
+    if (next.length < expectedPin.length) {
+      setTypedPin(next)
+      return
+    }
+
+    if (next === expectedPin) {
+      setTypedPin('')
+      setStatus(null)
+      setStep('overview')
+      return
+    }
+
+    setTypedPin('')
+    setStatus('Código incorrecto.')
+  }
+
+  const renderPin = () => (
+    <View style={styles.block}>
+      <Text style={[styles.title, { fontSize: type.title }]}>Código de servicio</Text>
+      <Text
+        style={[
+          styles.password,
+          { fontSize: type.title, marginTop: type.body * 0.6, letterSpacing: 10 },
+        ]}
+      >
+        {'•'.repeat(typedPin.length) || '—'}
+      </Text>
+
+      {status ? (
+        <Text style={[styles.status, { fontSize: type.body, marginTop: type.body * 0.5 }]}>
+          {status}
+        </Text>
+      ) : null}
+
+      <View style={[styles.row, { marginTop: type.body }]}>
+        {[...'0123456789'].map((digit, index) => (
+          <Key
+            key={digit}
+            label={digit}
+            size={type.body}
+            focusFirst={index === 0}
+            onPress={() => appendPin(digit)}
+          />
+        ))}
+      </View>
+
+      <View style={[styles.row, { marginTop: type.body * 0.6 }]}>
+        <Key label='Salir' onPress={onClose} wide tone='danger' size={type.body} />
+      </View>
+    </View>
+  )
 
   const renderOverview = () => (
     <View style={styles.block}>
@@ -328,6 +397,7 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
         },
       ]}
     >
+      {step === 'pin' ? renderPin() : null}
       {step === 'overview' ? renderOverview() : null}
       {step === 'networks' ? renderNetworks() : null}
       {step === 'password' ? renderPassword() : null}

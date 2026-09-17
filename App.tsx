@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -32,8 +32,10 @@ const RETRY_DELAY_SECONDS = 20;
 // The service screen is opened from a small target in a corner rather than a
 // key combination: the TV event API on this player never delivered a single
 // key to JavaScript on a real television, while ordinary focus and press work.
-// It is the only focusable thing on screen, so an installer reaches it with an
-// arrow and confirms, and a guest has nothing to press by accident.
+// It takes three presses because it is the only focusable thing on screen, so
+// a single press of select would otherwise drop a curious guest into service.
+const MAINTENANCE_PRESSES = 3;
+const MAINTENANCE_PRESS_WINDOW_MS = 4000;
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCvF1N2eHIfulW3KhvRbc4zT-QU8CkRHbA',
@@ -161,6 +163,42 @@ export default function App(): React.JSX.Element {
   const [secondsToRetry, setSecondsToRetry] = useState(RETRY_DELAY_SECONDS);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
+  const [maintenancePin, setMaintenancePin] = useState<string | null>(null);
+  const servicePresses = useRef(0);
+  const servicePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const countServicePress = useCallback(() => {
+    servicePresses.current += 1;
+
+    if (servicePressTimer.current) {
+      clearTimeout(servicePressTimer.current);
+    }
+
+    if (servicePresses.current >= MAINTENANCE_PRESSES) {
+      servicePresses.current = 0;
+      setMaintenanceVisible(true);
+      return;
+    }
+
+    servicePressTimer.current = setTimeout(() => {
+      servicePresses.current = 0;
+    }, MAINTENANCE_PRESS_WINDOW_MS);
+  }, []);
+
+  // The service code is read on every totem, not only provisioned ones.
+  useEffect(() => {
+    if (!deviceId) {
+      return undefined;
+    }
+
+    return onValue(
+      ref(getDatabase(), `devices/${deviceId}/maintenancePin`),
+      (snapshot) => {
+        const value = snapshot.val();
+        setMaintenancePin(typeof value === 'string' ? value : null);
+      },
+    );
+  }, [deviceId]);
 
   // Owning the screen is opt in, per totem, from the dashboard. Installing the
   // app must never lock a television on its own: wireless debugging turns
@@ -286,7 +324,7 @@ export default function App(): React.JSX.Element {
           accessibilityRole="button"
           accessibilityLabel="Abrir mantenimiento"
           hasTVPreferredFocus
-          onPress={() => setMaintenanceVisible(true)}
+          onPress={countServicePress}
           style={({ focused }) => [
             styles.serviceTarget,
             { opacity: focused ? 0.9 : 0.05 },
@@ -296,6 +334,7 @@ export default function App(): React.JSX.Element {
       {maintenanceVisible ? (
         <MaintenanceScreen
           deviceId={deviceId}
+          pin={maintenancePin}
           onClose={() => setMaintenanceVisible(false)}
         />
       ) : null}

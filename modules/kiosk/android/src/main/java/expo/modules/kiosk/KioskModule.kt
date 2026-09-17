@@ -78,6 +78,17 @@ class KioskModule : Module() {
       policyManager.addPersistentPreferredActivity(admin, filter, launcher)
     }
 
+    // The only way back from a provisioned totem. adb cannot do this: Android
+    // refuses to remove a device owner that is not a test admin, so without
+    // this the screen can only be recovered by a factory reset.
+    @Suppress("DEPRECATION")
+    Function<Unit>("releaseDevice") { ->
+      requireOwner()
+      activity?.stopLockTask()
+      policyManager.clearPackagePersistentPreferredActivities(admin, context.packageName)
+      policyManager.clearDeviceOwnerApp(context.packageName)
+    }
+
     Function<Unit>("clearHome") { ->
       requireOwner()
       policyManager.clearPackagePersistentPreferredActivities(admin, context.packageName)
