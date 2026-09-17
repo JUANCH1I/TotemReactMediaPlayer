@@ -6,6 +6,7 @@ import { getDatabase, ref, update } from 'firebase/database';
 import type { Database } from 'firebase/database';
 import { getFirestore } from 'firebase/firestore';
 import * as Device from 'expo-device';
+import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
 import StatusScreen, { StatusTone } from './components/StatusScreen';
@@ -104,6 +105,13 @@ export default function App(): React.JSX.Element {
   const [secondsToRetry, setSecondsToRetry] = useState(RETRY_DELAY_SECONDS);
   const [deviceId, setDeviceId] = useState<string | null>(null);
 
+  // The status screens ask for Nunito; until it arrives the system face stands
+  // in, so a slow font never holds up playback.
+  useFonts({
+    'Nunito-Regular': require('./assets/fonts/Nunito-Regular.ttf'),
+    'Nunito-Bold': require('./assets/fonts/Nunito-Bold.ttf'),
+  });
+
   const retryNow = useCallback(() => {
     setSecondsToRetry(RETRY_DELAY_SECONDS);
     setInitializationState('initializing');
@@ -152,8 +160,8 @@ export default function App(): React.JSX.Element {
         <StatusBar hidden />
         <StatusScreen
           tone={StatusTone.WAITING}
-          title="Conectando"
-          message="La pantalla está buscando su configuración."
+          title="Encendiendo la pantalla"
+          message="Un momento, estamos buscando tu contenido."
           deviceId={deviceId ?? undefined}
         />
       </SafeAreaView>
@@ -166,12 +174,12 @@ export default function App(): React.JSX.Element {
         <StatusBar hidden />
         <StatusScreen
           tone={StatusTone.ERROR}
-          title="Sin conexión con el servidor"
-          message="Revisa la conexión a internet del televisor."
+          title="No pudimos conectarnos"
+          message="Revisa que el televisor tenga internet. Mientras tanto seguimos intentando solos."
           deviceId={deviceId ?? undefined}
           actionLabel="Reintentar ahora"
           onAction={retryNow}
-          footnote={`La pantalla reintenta sola en ${secondsToRetry} s.`}
+          footnote={`Próximo intento en ${secondsToRetry} s`}
         />
       </SafeAreaView>
     );

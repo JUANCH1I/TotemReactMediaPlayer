@@ -698,8 +698,8 @@ export default function MediaPlayer({
         {!currentItem && deviceId && (
           <StatusScreen
             tone={StatusTone.READY}
-            title='Pantalla lista'
-            message='Escanea el código desde el panel para asignarle contenido.'
+            title='¡Todo listo!'
+            message='Escanea este código con el panel para elegir qué se muestra aquí.'
             deviceId={deviceId}
             qrUrl={qrUrl}
             rotation={rotation}
@@ -714,7 +714,7 @@ export default function MediaPlayer({
       <View style={styles.container}>
         <StatusScreen
           tone={StatusTone.ERROR}
-          title='No se pudo reproducir el contenido'
+          title='No pudimos reproducir el contenido'
           message={error}
           deviceId={deviceId}
           rotation={rotation}
@@ -729,8 +729,8 @@ export default function MediaPlayer({
       {!currentItem && deviceId && (
         <StatusScreen
           tone={StatusTone.READY}
-          title='Pantalla lista'
-          message='Escanea el código desde el panel para asignarle contenido.'
+          title='¡Todo listo!'
+          message='Escanea este código con el panel para elegir qué se muestra aquí.'
           deviceId={deviceId}
           qrUrl={qrUrl}
           rotation={rotation}

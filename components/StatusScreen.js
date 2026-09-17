@@ -3,7 +3,6 @@ import {
   Animated,
   Easing,
   Image,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,10 +11,12 @@ import {
 } from 'react-native'
 
 // Full screen state for a totem that is not playing content: connecting,
-// failing to reach the server, or waiting to be given a playlist. The screens
-// are read from across a room and can stay up for hours, so type is sized from
-// the screen, edges keep a safe margin away from the TV overscan area, and the
-// block drifts slowly to avoid burning the panel.
+// failing to reach the server, or waiting to be given a playlist. These screens
+// hang in a dining room, so they are lit like one: warm ground, a pilot lamp
+// that says what is going on, and plain language. They are read from across the
+// room, can stay up for hours, and must survive the overscan area a television
+// crops away, so type is sized from the screen, the edges keep a safe margin,
+// and the whole block drifts slowly to avoid burning the panel.
 
 export const StatusTone = {
   WAITING: 'waiting',
@@ -24,56 +25,60 @@ export const StatusTone = {
 }
 
 const PALETTE = {
-  base: '#102A33',
-  deep: '#07171C',
-  mist: '#E6F0EF',
-  haze: '#7FA0A6',
-  signal: '#35D0BA',
-  alert: '#E2604A',
+  base: '#24191C',
+  deep: '#170F11',
+  cream: '#F6ECE1',
+  muted: '#C4A99B',
+  honey: '#F2B441',
+  ember: '#E8705A',
 }
 
 const TONE_COLOR = {
-  [StatusTone.WAITING]: PALETTE.signal,
-  [StatusTone.READY]: PALETTE.signal,
-  [StatusTone.ERROR]: PALETTE.alert,
+  [StatusTone.WAITING]: PALETTE.honey,
+  [StatusTone.READY]: PALETTE.honey,
+  [StatusTone.ERROR]: PALETTE.ember,
 }
 
-const RAIL_SEGMENTS = 5
-const RAIL_TRACK_OPACITY = 0.14
+const FONT = {
+  regular: 'Nunito-Regular',
+  bold: 'Nunito-Bold',
+}
+
 const DRIFT_RANGE = 16
 const DRIFT_DURATION = 45000
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
 const useTypeScale = (shortSide) => ({
-  display: clamp(Math.round(shortSide * 0.105), 30, 76),
-  body: clamp(Math.round(shortSide * 0.045), 16, 32),
-  meta: clamp(Math.round(shortSide * 0.032), 13, 22),
+  display: clamp(Math.round(shortSide * 0.1), 28, 72),
+  body: clamp(Math.round(shortSide * 0.044), 16, 31),
+  meta: clamp(Math.round(shortSide * 0.03), 13, 21),
 })
 
-// The rail reads as a signal meter: it climbs while the totem is reaching the
-// server, holds still once it is ready, and drops to a single mark on failure.
-const SignalRail = ({ tone, height }) => {
-  const progress = useRef(new Animated.Value(0)).current
+// The lamp is the pilot light of the totem: breathing while it reaches the
+// server, steady once content can arrive, slower and warmer when it failed.
+const PilotLamp = ({ tone, size }) => {
+  const pulse = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
-    if (tone !== StatusTone.WAITING) {
-      progress.setValue(tone === StatusTone.READY ? 1 : 0)
+    if (tone === StatusTone.READY) {
+      pulse.setValue(1)
       return undefined
     }
 
+    const duration = tone === StatusTone.ERROR ? 1800 : 1100
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(progress, {
+        Animated.timing(pulse, {
           toValue: 1,
-          duration: 2200,
-          easing: Easing.inOut(Easing.cubic),
+          duration,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(progress, {
+        Animated.timing(pulse, {
           toValue: 0,
-          duration: 900,
-          easing: Easing.in(Easing.cubic),
+          duration,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
       ])
@@ -81,47 +86,36 @@ const SignalRail = ({ tone, height }) => {
 
     animation.start()
     return () => animation.stop()
-  }, [progress, tone])
+  }, [pulse, tone])
 
   const color = TONE_COLOR[tone]
-  const segmentHeight = Math.round(height / RAIL_SEGMENTS) - 8
+  const haloScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] })
+  const haloOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0] })
 
-  // Segments read bottom up, the way a signal meter fills.
   return (
-    <View style={[styles.rail, { height }]} pointerEvents='none'>
-      {Array.from({ length: RAIL_SEGMENTS }).map((_, index) => {
-        const step = RAIL_SEGMENTS - 1 - index
-        const threshold = step / RAIL_SEGMENTS
-        const isErrorMark = tone === StatusTone.ERROR && step === 0
-        const restingOpacity =
-          tone === StatusTone.READY && step === RAIL_SEGMENTS - 1 ? 1 : 0.55
-
-        let opacity = RAIL_TRACK_OPACITY
-
-        if (isErrorMark) {
-          opacity = 1
-        } else if (tone === StatusTone.READY) {
-          opacity = restingOpacity
-        } else if (tone === StatusTone.WAITING) {
-          opacity = progress.interpolate({
-            inputRange: [threshold, Math.min(threshold + 0.25, 1)],
-            outputRange: [RAIL_TRACK_OPACITY, 0.9],
-            extrapolate: 'clamp',
-          })
-        }
-
-        return (
-          <Animated.View
-            // Keyed by tone as well: switching an animated opacity back to a
-            // plain number leaves the old animation driving the view.
-            key={`${tone}-${index}`}
-            style={[
-              styles.railSegment,
-              { height: segmentHeight, backgroundColor: color, opacity },
-            ]}
-          />
-        )
-      })}
+    <View style={[styles.lampSlot, { width: size * 2.4, height: size * 2.4 }]}>
+      <Animated.View
+        key={`halo-${tone}`}
+        style={[
+          styles.lampHalo,
+          {
+            width: size * 1.6,
+            height: size * 1.6,
+            borderRadius: size * 0.8,
+            backgroundColor: color,
+            opacity: tone === StatusTone.READY ? 0.18 : haloOpacity,
+            transform: [{ scale: tone === StatusTone.READY ? 1.5 : haloScale }],
+          },
+        ]}
+      />
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: color,
+        }}
+      />
     </View>
   )
 }
@@ -158,7 +152,6 @@ const StatusScreen = ({
   const frameHeight = isQuarterTurn ? width : height
   const shortSide = Math.min(frameWidth, frameHeight)
   const type = useTypeScale(shortSide)
-  const stacked = frameWidth < frameHeight * 1.2
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -194,7 +187,8 @@ const StatusScreen = ({
   }
 
   const safePadding = Math.round(shortSide * 0.08)
-  const qrSize = clamp(Math.round(shortSide * 0.3), 120, 320)
+  const qrSize = clamp(Math.round(shortSide * 0.26), 120, 300)
+  const glowSize = Math.round(Math.max(frameWidth, frameHeight) * 1.35)
 
   return (
     <View
@@ -206,120 +200,72 @@ const StatusScreen = ({
         {
           width: frameWidth,
           height: frameHeight,
-          paddingVertical: safePadding,
-          paddingLeft: safePadding,
-          paddingRight: safePadding,
+          padding: safePadding,
           transform: [{ rotate: `${angle}deg` }],
           top: (height - frameHeight) / 2,
           left: (width - frameWidth) / 2,
         },
       ]}
     >
-      <SignalRail
-        tone={tone}
-        height={clamp(Math.round(frameHeight * 0.34), 120, 300)}
+      {/* Warm light pooling behind the copy, the way a lamp lights a table.
+          Stacked circles band visibly, so the falloff comes from an image with
+          a real alpha ramp, tinted to whatever the current state is. */}
+      <Image
+        pointerEvents='none'
+        source={require('../assets/images/glow.png')}
+        style={[
+          styles.glow,
+          {
+            width: glowSize,
+            height: glowSize,
+            marginLeft: -glowSize / 2,
+            marginTop: -glowSize / 2,
+            tintColor: TONE_COLOR[tone],
+          },
+        ]}
       />
 
-      <Animated.View
-        style={[
-          styles.content,
-          driftStyle,
-          stacked ? styles.contentStacked : styles.contentSideBySide,
-          { paddingLeft: Math.round(safePadding * 0.8) },
-        ]}
-      >
-        <View style={styles.copy}>
+      <Animated.View style={[styles.content, driftStyle]}>
+        <PilotLamp tone={tone} size={clamp(Math.round(shortSide * 0.045), 14, 30)} />
+
+        <Text
+          style={[
+            styles.title,
+            {
+              fontSize: type.display,
+              lineHeight: Math.round(type.display * 1.18),
+              marginTop: Math.round(type.body * 0.6),
+            },
+          ]}
+        >
+          {title}
+        </Text>
+
+        {message ? (
           <Text
-            accessible
-            accessibilityRole='header'
             style={[
-              styles.title,
-              { fontSize: type.display, lineHeight: Math.round(type.display * 1.1) },
+              styles.message,
+              {
+                fontSize: type.body,
+                lineHeight: Math.round(type.body * 1.5),
+                marginTop: Math.round(type.body * 0.7),
+                maxWidth: Math.min(frameWidth - safePadding * 2, 660),
+              },
             ]}
           >
-            {title}
+            {message}
           </Text>
-
-          {message ? (
-            <Text
-              style={[
-                styles.message,
-                {
-                  fontSize: type.body,
-                  lineHeight: Math.round(type.body * 1.45),
-                  marginTop: Math.round(type.body * 0.9),
-                },
-              ]}
-            >
-              {message}
-            </Text>
-          ) : null}
-
-          {deviceId ? (
-            <Text
-              style={[
-                styles.deviceId,
-                { fontSize: type.meta, marginTop: Math.round(type.body * 1.4) },
-              ]}
-            >
-              {deviceId}
-            </Text>
-          ) : null}
-
-          {actionLabel && onAction ? (
-            <Pressable
-              accessibilityRole='button'
-              accessibilityLabel={actionLabel}
-              hasTVPreferredFocus
-              onPress={onAction}
-              style={({ focused, pressed }) => [
-                styles.action,
-                {
-                  marginTop: Math.round(type.body * 1.4),
-                  paddingVertical: Math.round(type.body * 0.6),
-                  paddingHorizontal: Math.round(type.body * 1.2),
-                  borderColor: TONE_COLOR[tone],
-                  backgroundColor:
-                    focused || pressed ? TONE_COLOR[tone] : 'transparent',
-                },
-              ]}
-            >
-              {({ focused, pressed }) => (
-                <Text
-                  style={[
-                    styles.actionLabel,
-                    {
-                      fontSize: type.body,
-                      color: focused || pressed ? PALETTE.deep : PALETTE.mist,
-                    },
-                  ]}
-                >
-                  {actionLabel}
-                </Text>
-              )}
-            </Pressable>
-          ) : null}
-
-          {footnote ? (
-            <Text
-              style={[
-                styles.footnote,
-                { fontSize: type.meta, marginTop: Math.round(type.meta * 0.9) },
-              ]}
-            >
-              {footnote}
-            </Text>
-          ) : null}
-        </View>
+        ) : null}
 
         {qrUrl ? (
           <View
             style={[
-              styles.qrFrame,
-              stacked
-                ? { marginTop: Math.round(type.body * 1.6) }
-                : { marginLeft: Math.round(safePadding * 1.2) },
-              { padding: Math.round(qrSize * 0.06) },
+              styles.card,
+              {
+                marginTop: Math.round(type.body * 1.5),
+                padding: Math.round(qrSize * 0.09),
+                borderRadius: Math.round(qrSize * 0.14),
+              },
             ]}
           >
             <Image
@@ -327,6 +273,83 @@ const StatusScreen = ({
               style={{ width: qrSize, height: qrSize }}
               resizeMode='contain'
             />
+            {deviceId ? (
+              <>
+                <Text
+                  style={[
+                    styles.cardLabel,
+                    { fontSize: type.meta, marginTop: Math.round(type.meta * 0.8) },
+                  ]}
+                >
+                  Código del equipo
+                </Text>
+                <Text style={[styles.cardCode, { fontSize: type.meta }]}>
+                  {deviceId}
+                </Text>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
+        {actionLabel && onAction ? (
+          <Pressable
+            accessibilityRole='button'
+            accessibilityLabel={actionLabel}
+            hasTVPreferredFocus
+            onPress={onAction}
+            style={({ focused, pressed }) => [
+              styles.action,
+              {
+                marginTop: Math.round(type.body * 1.4),
+                paddingVertical: Math.round(type.body * 0.65),
+                paddingHorizontal: Math.round(type.body * 1.6),
+                backgroundColor:
+                  focused || pressed ? PALETTE.cream : 'transparent',
+                borderColor: focused || pressed ? PALETTE.cream : PALETTE.muted,
+              },
+            ]}
+          >
+            {({ focused, pressed }) => (
+              <Text
+                style={[
+                  styles.actionLabel,
+                  {
+                    fontSize: type.body,
+                    color: focused || pressed ? PALETTE.base : PALETTE.cream,
+                  },
+                ]}
+              >
+                {actionLabel}
+              </Text>
+            )}
+          </Pressable>
+        ) : null}
+
+        {footnote ? (
+          <Text
+            style={[
+              styles.footnote,
+              { fontSize: type.meta, marginTop: Math.round(type.meta * 1.1) },
+            ]}
+          >
+            {footnote}
+          </Text>
+        ) : null}
+
+        {deviceId && !qrUrl ? (
+          <View
+            style={[
+              styles.chip,
+              {
+                marginTop: Math.round(type.body * 1.6),
+                paddingVertical: Math.round(type.meta * 0.45),
+                paddingHorizontal: Math.round(type.meta * 0.9),
+              },
+            ]}
+          >
+            <Text style={[styles.chipText, { fontSize: type.meta }]}>
+              Equipo {deviceId}
+            </Text>
           </View>
         ) : null}
       </Animated.View>
@@ -337,63 +360,71 @@ const StatusScreen = ({
 const styles = StyleSheet.create({
   screen: {
     position: 'absolute',
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: PALETTE.base,
+    overflow: 'hidden',
   },
-  rail: {
-    width: 8,
-    justifyContent: 'space-between',
-  },
-  railSegment: {
-    width: 8,
-    borderRadius: 4,
+  glow: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    opacity: 0.16,
   },
   content: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
-  contentSideBySide: {
-    flexDirection: 'row',
     alignItems: 'center',
   },
-  contentStacked: {
-    flexDirection: 'column',
+  lampSlot: {
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  copy: {
-    flexShrink: 1,
+  lampHalo: {
+    position: 'absolute',
   },
   title: {
-    color: PALETTE.mist,
-    fontWeight: '300',
-    letterSpacing: -0.5,
+    color: PALETTE.cream,
+    fontFamily: FONT.bold,
+    textAlign: 'center',
   },
   message: {
-    color: PALETTE.haze,
-    fontWeight: '400',
-    maxWidth: 620,
+    color: PALETTE.muted,
+    fontFamily: FONT.regular,
+    textAlign: 'center',
   },
-  deviceId: {
-    color: PALETTE.mist,
-    fontFamily: Platform.select({ android: 'monospace', default: 'Menlo' }),
-    letterSpacing: 1.5,
-    opacity: 0.85,
+  card: {
+    backgroundColor: PALETTE.cream,
+    alignItems: 'center',
+  },
+  cardLabel: {
+    color: PALETTE.base,
+    fontFamily: FONT.regular,
+    opacity: 0.6,
+  },
+  cardCode: {
+    color: PALETTE.base,
+    fontFamily: FONT.bold,
+    letterSpacing: 1.2,
   },
   action: {
     borderWidth: 2,
-    borderRadius: 2,
-    alignSelf: 'flex-start',
+    borderRadius: 999,
   },
   actionLabel: {
-    fontWeight: '500',
+    fontFamily: FONT.bold,
   },
   footnote: {
-    color: PALETTE.haze,
+    color: PALETTE.muted,
+    fontFamily: FONT.regular,
+    opacity: 0.8,
   },
-  qrFrame: {
-    backgroundColor: PALETTE.mist,
-    borderRadius: 2,
+  chip: {
+    borderRadius: 999,
+    backgroundColor: PALETTE.deep,
+  },
+  chipText: {
+    color: PALETTE.muted,
+    fontFamily: FONT.regular,
+    letterSpacing: 1,
   },
 })
 
