@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Platform, SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
-import { getDatabase, ref, update } from 'firebase/database';
+import { getDatabase, onDisconnect, onValue, ref, serverTimestamp, update } from 'firebase/database';
 import type { Database } from 'firebase/database';
 import { getFirestore } from 'firebase/firestore';
 import * as Device from 'expo-device';
@@ -11,6 +11,11 @@ import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
 import StatusScreen, { StatusTone } from './components/StatusScreen';
 import { getDeviceId } from './components/utils/deviceId';
+import {
+  createPresenceReporter,
+  SERVER_TIME,
+} from './components/utils/presenceReporter';
+import { nativeApplicationVersion } from 'expo-application';
 
 // A totem usually runs with nobody in the room, so a failed start retries on
 // its own instead of waiting for someone to pick up the remote.
@@ -83,11 +88,48 @@ const registerDevice = async (): Promise<void> => {
     console.error('Unable to register device information:', error);
   }
 
+  startPresenceReporting(database, deviceId);
+
   if (Platform.isTV) {
     return;
   }
 
   await updateDeviceLocation(database, deviceId);
+};
+
+// Presence lives next to registration: the database had no timestamps at all,
+// so a screen unplugged a year ago looked exactly like one playing right now.
+const startPresenceReporting = (database: Database, deviceId: string): void => {
+  const statusRef = ref(database, `devices/${deviceId}`);
+  const connectedRef = ref(database, '.info/connected');
+
+  const withServerTime = (payload: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(payload).map(([key, value]) => [
+        key,
+        value === SERVER_TIME ? serverTimestamp() : value,
+      ]),
+    );
+
+  const reporter = createPresenceReporter({
+    client: {
+      watchConnection: (callback: (connected: boolean) => void) =>
+        onValue(connectedRef, (snapshot) => callback(snapshot.val() === true)),
+      // The server writes this on the totem's behalf, so a power cut is
+      // reported even though the app never gets to say goodbye.
+      armDisconnect: (payload: Record<string, unknown>) =>
+        onDisconnect(statusRef).update(withServerTime(payload)),
+      write: (payload: Record<string, unknown>) =>
+        update(statusRef, withServerTime(payload)),
+    },
+    details: {
+      appVersion: nativeApplicationVersion ?? null,
+      model: Device.modelName ?? null,
+      osVersion: Device.osVersion ?? null,
+    },
+  });
+
+  reporter.start();
 };
 
 const registerDeviceInBackground = (): void => {
