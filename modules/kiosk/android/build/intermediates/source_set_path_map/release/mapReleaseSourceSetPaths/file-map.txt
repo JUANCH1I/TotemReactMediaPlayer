@@ -1,0 +1,7 @@
+expo.modules.kiosk-pngs-0 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/build/generated/res/pngs/release
+expo.modules.kiosk-resValues-1 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/build/generated/res/resValues/release
+expo.modules.kiosk-mergeReleaseResources-2 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
+expo.modules.kiosk-mergeReleaseResources-3 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
+expo.modules.kiosk-release-4 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/build/intermediates/merged_res/release/mergeReleaseResources
+expo.modules.kiosk-main-5 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/res
+expo.modules.kiosk-release-6 /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/release/res

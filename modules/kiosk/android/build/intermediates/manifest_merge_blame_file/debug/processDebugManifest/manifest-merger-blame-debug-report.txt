@@ -1,0 +1,53 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="expo.modules.kiosk" >
+4
+5    <uses-sdk android:minSdkVersion="24" />
+6    <!--
+7       Scanning for networks needs a location permission below Android 13 and
+8       the nearby devices permission from 13 on. A device owner grants these to
+9       itself, so nobody has to answer a dialog with a remote control.
+10    -->
+11    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+11-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:5:3-77
+11-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:5:20-74
+12    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+12-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:6:3-74
+12-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:6:20-71
+13    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+13-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:7:3-74
+13-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:7:20-71
+14    <uses-permission
+14-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:8:3-10:54
+15        android:name="android.permission.NEARBY_WIFI_DEVICES"
+15-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:9:5-58
+16        android:usesPermissionFlags="neverForLocation" />
+16-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:10:5-51
+17
+18    <application>
+18-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:12:3-24:17
+19        <receiver
+19-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:13:5-23:16
+20            android:name="expo.modules.kiosk.TotemDeviceAdminReceiver"
+20-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:14:7-65
+21            android:exported="true"
+21-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:16:7-30
+22            android:permission="android.permission.BIND_DEVICE_ADMIN" >
+22-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:15:7-64
+23            <meta-data
+23-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:17:7-19:54
+24                android:name="android.app.device_admin"
+24-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:18:9-48
+25                android:resource="@xml/totem_device_admin" />
+25-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:19:9-51
+26
+27            <intent-filter>
+27-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:20:7-22:23
+28                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+28-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:21:9-74
+28-->/home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:21:17-71
+29            </intent-filter>
+30        </receiver>
+31    </application>
+32
+33</manifest>

@@ -29,7 +29,8 @@
       ],
       "expo-font",
       "expo-splash-screen",
-      "expo-status-bar"
+      "expo-status-bar",
+      "./plugins/withTotemHomeLauncher"
     ],
     "name": "Totem",
     "slug": "Totem",

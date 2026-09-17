@@ -1,0 +1,56 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:1:1-25:12
+INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:1:1-25:12
+	package
+		INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:1:11-69
+uses-permission#android.permission.ACCESS_FINE_LOCATION
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:5:3-77
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:5:20-74
+uses-permission#android.permission.ACCESS_WIFI_STATE
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:6:3-74
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:6:20-71
+uses-permission#android.permission.CHANGE_WIFI_STATE
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:7:3-74
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:7:20-71
+uses-permission#android.permission.NEARBY_WIFI_DEVICES
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:8:3-10:54
+	android:usesPermissionFlags
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:10:5-51
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:9:5-58
+application
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:12:3-24:17
+receiver#expo.modules.kiosk.TotemDeviceAdminReceiver
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:13:5-23:16
+	android:exported
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:16:7-30
+	android:permission
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:15:7-64
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:14:7-65
+meta-data#android.app.device_admin
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:17:7-19:54
+	android:resource
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:19:9-51
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:18:9-48
+intent-filter#action:name:android.app.action.DEVICE_ADMIN_ENABLED
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:20:7-22:23
+action#android.app.action.DEVICE_ADMIN_ENABLED
+ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:21:9-74
+	android:name
+		ADDED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml:21:17-71
+uses-sdk
+INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml
+INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/juanmanfredi/desarrollo/TotemReactMediaPlayer-sdk56/modules/kiosk/android/src/main/AndroidManifest.xml

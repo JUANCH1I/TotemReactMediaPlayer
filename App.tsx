@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Platform, SafeAreaView, StatusBar, StyleSheet } from 'react-native';
+import {
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  useTVEventHandler,
+} from 'react-native';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
 import { getDatabase, onDisconnect, onValue, ref, serverTimestamp, update } from 'firebase/database';
@@ -10,6 +16,8 @@ import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
 import StatusScreen, { StatusTone } from './components/StatusScreen';
+import MaintenanceScreen from './components/MaintenanceScreen';
+import Kiosk from './modules/kiosk';
 import { getDeviceId } from './components/utils/deviceId';
 import {
   createPresenceReporter,
@@ -20,6 +28,10 @@ import { nativeApplicationVersion } from 'expo-application';
 // A totem usually runs with nobody in the room, so a failed start retries on
 // its own instead of waiting for someone to pick up the remote.
 const RETRY_DELAY_SECONDS = 20;
+
+// Held, not pressed: a guest pressing OK on the remote must never land in the
+// service screen by accident.
+const MAINTENANCE_EVENT = 'longSelect';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCvF1N2eHIfulW3KhvRbc4zT-QU8CkRHbA',
@@ -146,6 +158,29 @@ export default function App(): React.JSX.Element {
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [secondsToRetry, setSecondsToRetry] = useState(RETRY_DELAY_SECONDS);
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [maintenanceVisible, setMaintenanceVisible] = useState(false);
+
+  // On a provisioned totem the app owns the screen: it is what the television
+  // comes back to, and it cannot be left. On anything else this is skipped, so
+  // the same build still runs on a phone or an unprovisioned television.
+  useEffect(() => {
+    try {
+      if (!Kiosk.isDeviceOwner()) {
+        return;
+      }
+
+      Kiosk.setAsHome();
+      Kiosk.lock();
+    } catch (error) {
+      console.error('Unable to take over the screen:', error);
+    }
+  }, []);
+
+  useTVEventHandler((event: { eventType: string }) => {
+    if (event.eventType === MAINTENANCE_EVENT) {
+      setMaintenanceVisible(true);
+    }
+  });
 
   // The status screens ask for Nunito; until it arrives the system face stands
   // in, so a slow font never holds up playback.
@@ -231,6 +266,12 @@ export default function App(): React.JSX.Element {
     <SafeAreaView style={styles.container}>
       <StatusBar hidden />
       <AppNavigator />
+      {maintenanceVisible ? (
+        <MaintenanceScreen
+          deviceId={deviceId}
+          onClose={() => setMaintenanceVisible(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
