@@ -1,13 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Platform,
-  Pressable,
-  SafeAreaView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Platform, SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
 import { getDatabase, ref, update } from 'firebase/database';
@@ -16,7 +8,12 @@ import { getFirestore } from 'firebase/firestore';
 import * as Device from 'expo-device';
 import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
+import StatusScreen, { StatusTone } from './components/StatusScreen';
 import { getDeviceId } from './components/utils/deviceId';
+
+// A totem usually runs with nobody in the room, so a failed start retries on
+// its own instead of waiting for someone to pick up the remote.
+const RETRY_DELAY_SECONDS = 20;
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCvF1N2eHIfulW3KhvRbc4zT-QU8CkRHbA',
@@ -104,6 +101,14 @@ export default function App(): React.JSX.Element {
   const [initializationState, setInitializationState] =
     useState<InitializationState>('initializing');
   const [initializationAttempt, setInitializationAttempt] = useState(0);
+  const [secondsToRetry, setSecondsToRetry] = useState(RETRY_DELAY_SECONDS);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+
+  const retryNow = useCallback(() => {
+    setSecondsToRetry(RETRY_DELAY_SECONDS);
+    setInitializationState('initializing');
+    setInitializationAttempt((attempt) => attempt + 1);
+  }, []);
 
   useEffect(() => {
     try {
@@ -116,18 +121,41 @@ export default function App(): React.JSX.Element {
     }
   }, [initializationAttempt]);
 
+  useEffect(() => {
+    getDeviceId()
+      .then(setDeviceId)
+      .catch(() => setDeviceId(null));
+  }, []);
+
+  useEffect(() => {
+    if (initializationState !== 'error') {
+      return undefined;
+    }
+
+    const countdown = setInterval(() => {
+      setSecondsToRetry((seconds) => {
+        if (seconds <= 1) {
+          retryNow();
+          return RETRY_DELAY_SECONDS;
+        }
+
+        return seconds - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(countdown);
+  }, [initializationState, retryNow]);
+
   if (initializationState === 'initializing') {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar hidden />
-        <View
-          accessible
-          accessibilityRole="alert"
-          accessibilityLabel="Starting player"
-          style={styles.statusContainer}
-        >
-          <Text style={styles.statusText}>Starting player…</Text>
-        </View>
+        <StatusScreen
+          tone={StatusTone.WAITING}
+          title="Conectando"
+          message="La pantalla está buscando su configuración."
+          deviceId={deviceId ?? undefined}
+        />
       </SafeAreaView>
     );
   }
@@ -136,27 +164,15 @@ export default function App(): React.JSX.Element {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar hidden />
-        <View style={styles.statusContainer}>
-          <Text
-            accessible
-            accessibilityRole="alert"
-            accessibilityLabel="Playback services could not be initialized"
-            style={styles.statusText}
-          >
-            Playback services could not be initialized.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Retry initialization"
-            onPress={() => {
-              setInitializationState('initializing');
-              setInitializationAttempt((attempt) => attempt + 1);
-            }}
-            style={styles.retryButton}
-          >
-            <Text style={styles.retryText}>Retry</Text>
-          </Pressable>
-        </View>
+        <StatusScreen
+          tone={StatusTone.ERROR}
+          title="Sin conexión con el servidor"
+          message="Revisa la conexión a internet del televisor."
+          deviceId={deviceId ?? undefined}
+          actionLabel="Reintentar ahora"
+          onAction={retryNow}
+          footnote={`La pantalla reintenta sola en ${secondsToRetry} s.`}
+        />
       </SafeAreaView>
     );
   }
@@ -173,28 +189,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'black',
-  },
-  statusContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  statusText: {
-    color: 'white',
-    fontSize: 18,
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 20,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderColor: 'white',
-    borderWidth: 2,
-  },
-  retryText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
   },
 });

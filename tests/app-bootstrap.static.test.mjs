@@ -6,8 +6,19 @@ const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
 assert.match(source, /getApps\(\)\.length\s*>\s*0\s*\?\s*getApp\(\)\s*:\s*initializeApp\(/);
 assert.match(source, /Platform\.isTV/);
 assert.doesNotMatch(source, /location:\s*null/);
-assert.match(source, /accessibilityRole="alert"/);
-assert.match(source, /accessibilityRole="button"/);
+// The boot, error and empty states share components/StatusScreen.js, so the
+// announcement and the retry control are asserted where they now live.
+const statusScreen = readFileSync(
+  new URL('../components/StatusScreen.js', import.meta.url),
+  'utf8',
+);
+
+assert.match(source, /tone=\{StatusTone\.WAITING\}/);
+assert.match(source, /tone=\{StatusTone\.ERROR\}/);
+assert.match(source, /actionLabel="[^"]+"/);
+assert.match(source, /onAction=\{retryNow\}/);
+assert.match(statusScreen, /accessibilityRole=\{tone === StatusTone\.ERROR \? 'alert' : 'summary'\}/);
+assert.match(statusScreen, /accessibilityRole='button'/);
 
 const readyIndex = source.indexOf("setInitializationState('ready')");
 const registrationIndex = source.indexOf('registerDeviceInBackground();');

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { View, StyleSheet, Image, Text, Dimensions } from 'react-native'
 import { getDatabase, ref, onValue } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
-import { isPortrait } from './utils/portrait'
+import StatusScreen, { StatusTone } from './StatusScreen'
 import mediaCacheManager from './utils/mediaCacheManager'
 import playlistManifestStore, {
   createPlaylistBootstrapCoordinator,
@@ -683,7 +683,7 @@ export default function MediaPlayer({
   useEffect(() => {
     const fetchDeviceQRCode = async () => {
       const id = await getDeviceId()
-      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=0&data=${encodeURIComponent(
         id
       )}`
       setQrUrl(qrApiUrl)
@@ -696,21 +696,14 @@ export default function MediaPlayer({
       <View style={styles.container}>
         {renderMedia()}
         {!currentItem && deviceId && (
-          <View
-            style={{
-              transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }],
-            }}
-          >
-            <Text style={styles.noContentText}>
-              No hay contenido disponible
-            </Text>
-            <Text style={styles.noContentText}>deviceId: {deviceId}</Text>
-            {qrUrl ? (
-              <Image source={{ uri: qrUrl }} style={styles.qrCode} />
-            ) : (
-              <Text>Loading...</Text>
-            )}
-          </View>
+          <StatusScreen
+            tone={StatusTone.READY}
+            title='Pantalla lista'
+            message='Escanea el código desde el panel para asignarle contenido.'
+            deviceId={deviceId}
+            qrUrl={qrUrl}
+            rotation={rotation}
+          />
         )}
       </View>
     )
@@ -719,7 +712,13 @@ export default function MediaPlayer({
   if (error) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>{error}</Text>
+        <StatusScreen
+          tone={StatusTone.ERROR}
+          title='No se pudo reproducir el contenido'
+          message={error}
+          deviceId={deviceId}
+          rotation={rotation}
+        />
       </View>
     )
   }
@@ -728,17 +727,14 @@ export default function MediaPlayer({
     <View style={styles.container}>
       {renderMedia()}
       {!currentItem && deviceId && (
-        <View
-          style={{ transform: [{ rotate: isPortrait() ? '0deg' : '270deg' }] }}
-        >
-          <Text style={styles.noContentText}>No hay contenido disponible</Text>
-          <Text style={styles.noContentText}>deviceId: {deviceId}</Text>
-          {qrUrl ? (
-            <Image source={{ uri: qrUrl }} style={styles.qrCode} />
-          ) : (
-            <Text>Loading...</Text>
-          )}
-        </View>
+        <StatusScreen
+          tone={StatusTone.READY}
+          title='Pantalla lista'
+          message='Escanea el código desde el panel para asignarle contenido.'
+          deviceId={deviceId}
+          qrUrl={qrUrl}
+          rotation={rotation}
+        />
       )}
     </View>
   )
@@ -757,22 +753,5 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     right: 0,
-  },
-  qrCode: {
-    width: 150,
-    height: 150,
-    marginTop: 10,
-  },
-  loadingText: {
-    color: 'white',
-    fontSize: 18,
-  },
-  noContentText: {
-    color: 'white',
-    fontSize: 18,
-  },
-  errorText: {
-    color: 'red',
-    fontSize: 18,
   },
 })
