@@ -38,7 +38,8 @@ const TONE_COLOR = {
   [StatusTone.ERROR]: PALETTE.alert,
 }
 
-const RAIL_SEGMENTS = 7
+const RAIL_SEGMENTS = 5
+const RAIL_TRACK_OPACITY = 0.14
 const DRIFT_RANGE = 16
 const DRIFT_DURATION = 45000
 
@@ -83,30 +84,40 @@ const SignalRail = ({ tone, height }) => {
   }, [progress, tone])
 
   const color = TONE_COLOR[tone]
-  const segmentHeight = height / RAIL_SEGMENTS
+  const segmentHeight = Math.round(height / RAIL_SEGMENTS) - 8
 
+  // Segments read bottom up, the way a signal meter fills.
   return (
     <View style={[styles.rail, { height }]} pointerEvents='none'>
       {Array.from({ length: RAIL_SEGMENTS }).map((_, index) => {
-        const threshold = index / RAIL_SEGMENTS
-        const isErrorMark = tone === StatusTone.ERROR && index === RAIL_SEGMENTS - 2
+        const step = RAIL_SEGMENTS - 1 - index
+        const threshold = step / RAIL_SEGMENTS
+        const isErrorMark = tone === StatusTone.ERROR && step === 0
+        const restingOpacity =
+          tone === StatusTone.READY && step === RAIL_SEGMENTS - 1 ? 1 : 0.55
+
+        let opacity = RAIL_TRACK_OPACITY
+
+        if (isErrorMark) {
+          opacity = 1
+        } else if (tone === StatusTone.READY) {
+          opacity = restingOpacity
+        } else if (tone === StatusTone.WAITING) {
+          opacity = progress.interpolate({
+            inputRange: [threshold, Math.min(threshold + 0.25, 1)],
+            outputRange: [RAIL_TRACK_OPACITY, 0.9],
+            extrapolate: 'clamp',
+          })
+        }
 
         return (
           <Animated.View
-            key={index}
+            // Keyed by tone as well: switching an animated opacity back to a
+            // plain number leaves the old animation driving the view.
+            key={`${tone}-${index}`}
             style={[
               styles.railSegment,
-              {
-                height: segmentHeight - 6,
-                backgroundColor: color,
-                opacity: isErrorMark
-                  ? 1
-                  : progress.interpolate({
-                      inputRange: [threshold, Math.min(threshold + 0.2, 1)],
-                      outputRange: [0.12, tone === StatusTone.ERROR ? 0.12 : 0.9],
-                      extrapolate: 'clamp',
-                    }),
-              },
+              { height: segmentHeight, backgroundColor: color, opacity },
             ]}
           />
         )
@@ -204,7 +215,10 @@ const StatusScreen = ({
         },
       ]}
     >
-      <SignalRail tone={tone} height={frameHeight - safePadding * 2} />
+      <SignalRail
+        tone={tone}
+        height={clamp(Math.round(frameHeight * 0.34), 120, 300)}
+      />
 
       <Animated.View
         style={[
