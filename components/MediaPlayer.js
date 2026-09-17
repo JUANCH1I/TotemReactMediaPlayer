@@ -3,6 +3,11 @@ import { View, StyleSheet, Image, Text, Dimensions } from 'react-native'
 import { getDatabase, ref, onValue } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
 import StatusScreen, { StatusTone } from './StatusScreen'
+import SystemVolume from '../modules/system-volume'
+import {
+  createSystemVolumeController,
+  normalizeDashboardVolume,
+} from './utils/systemVolumeController'
 import mediaCacheManager from './utils/mediaCacheManager'
 import playlistManifestStore, {
   createPlaylistBootstrapCoordinator,
@@ -136,6 +141,7 @@ export default function MediaPlayer({
   const [localUri, setLocalUri] = useState(null)
   const [sourceGeneration, setSourceGeneration] = useState(null)
   const [qrUrl, setQrUrl] = useState(null)
+  const systemVolumeRef = useRef(null)
   const imageTimeoutRef = useRef(null)
   const recoveryTimeoutRef = useRef(null)
   const generationCounterRef = useRef(0)
@@ -153,6 +159,9 @@ export default function MediaPlayer({
   }
   const playlistLengthRef = useRef(currentPlaylist.length)
   playlistLengthRef.current = currentPlaylist.length
+  // Only what the dashboard actually sent: the local default must never be
+  // pushed onto the television.
+  const dashboardVolumeRef = useRef(null)
 
   // Configura los listeners de Firebase para playlist, volumen y rotación
   useEffect(() => {
@@ -256,10 +265,12 @@ export default function MediaPlayer({
           onValue(volumeRef, (snapshot) => {
             if (!isMounted) return
 
-            const volumeValue = snapshot.val()
-            if (volumeValue !== null) {
-              setVolume(volumeValue / 100)
-            }
+            const level = normalizeDashboardVolume(snapshot.val())
+            if (level === null) return
+
+            setVolume(level)
+            dashboardVolumeRef.current = level
+            systemVolumeRef.current?.setDesiredVolume(level)
           })
         )
 
@@ -615,12 +626,31 @@ export default function MediaPlayer({
     activeVideoGenerationRef.current = null
   }, [localUri, sourceGeneration, currentItem])
 
-  // Actualiza dinámicamente el volumen
+  // El deslizador del panel maneja el volumen del televisor, así que el
+  // reproductor se queda al máximo y el control remoto ya no puede dejar mudo
+  // un tótem. En modo canvas hay varias celdas y ninguna manda sobre el equipo.
   useEffect(() => {
     if (player) {
-      player.volume = volume
+      player.volume = canvaMode ? volume : 1
     }
-  }, [volume])
+  }, [player, volume, canvaMode])
+
+  useEffect(() => {
+    if (canvaMode) return undefined
+
+    const controller = createSystemVolumeController({ nativeModule: SystemVolume })
+    systemVolumeRef.current = controller
+    controller.start()
+
+    if (dashboardVolumeRef.current !== null) {
+      controller.setDesiredVolume(dashboardVolumeRef.current)
+    }
+
+    return () => {
+      controller.destroy()
+      systemVolumeRef.current = null
+    }
+  }, [canvaMode])
 
   // Actualiza la propiedad de looping según la playlist
   useEffect(() => {
