@@ -1,6 +1,6 @@
 <dependencies>
   <compile
-      roots=":@@:expo-modules-core::release,io.github.lukmccall.pika:pika-api:0.3.2@jar,androidx.core:core-ktx:1.17.0@aar,androidx.core:core:1.17.0@aar,org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2@jar,androidx.lifecycle:lifecycle-runtime:2.6.2@aar,androidx.lifecycle:lifecycle-common:2.6.2@jar,org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2@jar,androidx.versionedparcelable:versionedparcelable:1.1.1@aar,androidx.arch.core:core-common:2.2.0@jar,androidx.collection:collection:1.0.0@jar,androidx.annotation:annotation-jvm:1.8.1@jar,androidx.annotation:annotation-experimental:1.4.1@aar,androidx.core:core-viewtree:1.0.0@aar,org.jetbrains.kotlin:kotlin-stdlib:2.1.20@jar,org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.20@jar,org.jetbrains:annotations:23.0.0@jar,com.google.guava:listenablefuture:1.0@jar,org.jspecify:jspecify:1.0.0@jar">
+      roots=":@@:expo-modules-core::release,io.github.lukmccall.pika:pika-api:0.3.2@jar,androidx.core:core-ktx:1.17.0@aar,androidx.core:core:1.17.0@aar,org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2@jar,androidx.lifecycle:lifecycle-runtime:2.6.2@aar,androidx.lifecycle:lifecycle-common:2.6.2@jar,org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2@jar,androidx.versionedparcelable:versionedparcelable:1.1.1@aar,androidx.arch.core:core-common:2.2.0@jar,androidx.collection:collection:1.0.0@jar,androidx.annotation:annotation-jvm:1.8.1@jar,androidx.annotation:annotation-experimental:1.4.1@aar,androidx.core:core-viewtree:1.0.0@aar,org.jetbrains.kotlin:kotlin-stdlib:2.1.20@jar,org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.20@jar,org.jetbrains:annotations:23.0.0@jar,org.nanohttpd:nanohttpd:2.3.1@jar,com.google.zxing:core:3.5.3@jar,com.google.guava:listenablefuture:1.0@jar,org.jspecify:jspecify:1.0.0@jar">
     <dependency
         name=":@@:expo-modules-core::release"
         simpleName="host.exp.exponent:expo-modules-core"/>
@@ -53,6 +53,12 @@
         name="org.jetbrains:annotations:23.0.0@jar"
         simpleName="org.jetbrains:annotations"/>
     <dependency
+        name="org.nanohttpd:nanohttpd:2.3.1@jar"
+        simpleName="org.nanohttpd:nanohttpd"/>
+    <dependency
+        name="com.google.zxing:core:3.5.3@jar"
+        simpleName="com.google.zxing:core"/>
+    <dependency
         name="com.google.guava:listenablefuture:1.0@jar"
         simpleName="com.google.guava:listenablefuture"/>
     <dependency
@@ -60,7 +66,7 @@
         simpleName="org.jspecify:jspecify"/>
   </compile>
   <package
-      roots="io.github.lukmccall.pika:pika-api:0.3.2@jar,org.jetbrains.kotlin:kotlin-stdlib:2.1.20@jar,org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.20@jar,org.jetbrains:annotations:23.0.0@jar">
+      roots="io.github.lukmccall.pika:pika-api:0.3.2@jar,org.jetbrains.kotlin:kotlin-stdlib:2.1.20@jar,org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.20@jar,org.jetbrains:annotations:23.0.0@jar,org.nanohttpd:nanohttpd:2.3.1@jar,com.google.zxing:core:3.5.3@jar">
     <dependency
         name="io.github.lukmccall.pika:pika-api:0.3.2@jar"
         simpleName="io.github.lukmccall.pika:pika-api"/>
@@ -73,5 +79,11 @@
     <dependency
         name="org.jetbrains:annotations:23.0.0@jar"
         simpleName="org.jetbrains:annotations"/>
+    <dependency
+        name="org.nanohttpd:nanohttpd:2.3.1@jar"
+        simpleName="org.nanohttpd:nanohttpd"/>
+    <dependency
+        name="com.google.zxing:core:3.5.3@jar"
+        simpleName="com.google.zxing:core"/>
   </package>
 </dependencies>

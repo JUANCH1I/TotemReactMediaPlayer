@@ -16,3 +16,10 @@ android {
     abortOnError false
   }
 }
+
+dependencies {
+  // A totem being set up has no internet, so the setup page and its QR code
+  // are served and drawn by the device itself.
+  implementation 'org.nanohttpd:nanohttpd:2.3.1'
+  implementation 'com.google.zxing:core:3.5.3'
+}

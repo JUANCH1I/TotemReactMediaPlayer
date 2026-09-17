@@ -7,6 +7,16 @@ export type WifiNetwork = {
   secured: boolean;
 };
 
+export type SetupSession = {
+  ssid: string | null;
+  password: string | null;
+  url: string | null;
+  /** Data URI: scanned by a phone to join the totem's network. */
+  joinQr: string;
+  /** Data URI: opens the setup page once joined. */
+  pageQr: string | null;
+};
+
 declare class KioskModule extends NativeModule {
   /** Everything else here needs this to be true. */
   isDeviceOwner(): boolean;
@@ -18,6 +28,13 @@ declare class KioskModule extends NativeModule {
   clearHome(): void;
   /** Gives the television back: unlocks, drops the home pin and the ownership. */
   releaseDevice(): void;
+  /**
+   * Raises the totem's own network and serves the setup page on it, for a
+   * venue where there is no connection yet. Returns what the screen has to
+   * show: the credentials, the address, and QR codes for both.
+   */
+  startSetup(): Promise<SetupSession>;
+  stopSetup(): void;
   /** A device owner grants itself what a scan needs, with no dialogs. */
   grantWifiPermissions(): void;
   scanNetworks(): WifiNetwork[];

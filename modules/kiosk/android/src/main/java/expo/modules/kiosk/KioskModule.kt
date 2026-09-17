@@ -7,15 +7,24 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.util.Base64
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import fi.iki.elonen.NanoHTTPD
+import java.io.ByteArrayOutputStream
+import java.net.Inet4Address
+import java.net.NetworkInterface
 
 // Turns a television into a totem: the app cannot be left, and the network can
 // be configured from inside it, rotated like everything else the app draws.
@@ -24,12 +33,17 @@ import expo.modules.kotlin.modules.ModuleDefinition
 // per television from a factory reset state with no accounts on it:
 //   adb shell dpm set-device-owner com.juanch1.Totem/expo.modules.kiosk.TotemDeviceAdminReceiver
 // Without that, Android refuses to let a third party app manage Wi-Fi at all,
-// and this module reports notOwner so the app can fall back to the system
-// screens instead of pretending.
+// and every entry point here fails loudly so the app can fall back instead of
+// pretending.
+//
+// Note: startObserving and stopObserving are reserved by the Expo event system.
+private const val SETUP_PORT = 8088
+
 class KioskModule : Module() {
-  // Held for as long as the network must stay up: Android shuts the hotspot
-  // down as soon as the reservation is released.
+  // Both are held for as long as setup lasts: Android tears the hotspot down
+  // the moment its reservation is released.
   private var hotspot: WifiManager.LocalOnlyHotspotReservation? = null
+  private var server: SetupServer? = null
 
   private val context: Context
     get() = requireNotNull(appContext.reactContext) { "React context is not available" }
@@ -52,13 +66,116 @@ class KioskModule : Module() {
     }
   }
 
+  private fun scanNetworks(): List<Map<String, Any?>> {
+    requireOwner()
+
+    if (context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+      != PackageManager.PERMISSION_GRANTED
+    ) {
+      throw CodedException("ERR_NO_SCAN_PERMISSION", "Scanning needs the location permission", null)
+    }
+
+    return wifiManager.scanResults
+      .filter { it.SSID.isNotBlank() }
+      .groupBy { it.SSID }
+      // One entry per network, keeping the strongest reading.
+      .map { (ssid, results) ->
+        val best = results.maxByOrNull { it.level } ?: results.first()
+        mapOf(
+          "ssid" to ssid,
+          "level" to WifiManager.calculateSignalLevel(best.level, 5),
+          "secured" to (best.capabilities.contains("WPA") || best.capabilities.contains("WEP")),
+        )
+      }
+      .sortedByDescending { it["level"] as Int }
+  }
+
+  @Suppress("DEPRECATION")
+  private fun joinNetwork(ssid: String, password: String?): Boolean {
+    requireOwner()
+
+    val configuration = WifiConfiguration().apply {
+      SSID = "\"$ssid\""
+      if (password.isNullOrEmpty()) {
+        allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE)
+      } else {
+        preSharedKey = "\"$password\""
+      }
+    }
+
+    val networkId = wifiManager.addNetwork(configuration)
+    if (networkId == -1) {
+      throw CodedException("ERR_WIFI_REJECTED", "The network could not be saved", null)
+    }
+
+    wifiManager.disconnect()
+    val enabled = wifiManager.enableNetwork(networkId, true)
+    wifiManager.reconnect()
+
+    return enabled
+  }
+
+  @Suppress("DEPRECATION")
+  private fun readCurrentNetwork(): String? {
+    val ssid = wifiManager.connectionInfo?.ssid?.trim('"')
+
+    return if (ssid.isNullOrBlank() || ssid == "<unknown ssid>") null else ssid
+  }
+
+  private fun deviceId(): String? =
+    Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+
+  // The address a phone reaches once it has joined the totem's own network.
+  private fun hotspotAddress(): String? = NetworkInterface.getNetworkInterfaces()
+    .toList()
+    .asSequence()
+    .filter { runCatching { it.isUp }.getOrDefault(false) && !it.isLoopback }
+    .flatMap { it.inetAddresses.toList().asSequence() }
+    .filterIsInstance<Inet4Address>()
+    .mapNotNull { it.hostAddress }
+    .firstOrNull { it.startsWith("192.168.") || it.startsWith("172.") }
+
+  // Drawn here because a totem being set up has no internet to fetch one from.
+  private fun qrPng(payload: String, size: Int = 480): String {
+    val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, size, size)
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+
+    for (x in 0 until size) {
+      for (y in 0 until size) {
+        bitmap.setPixel(x, y, if (matrix.get(x, y)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+      }
+    }
+
+    val stream = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+
+    return "data:image/png;base64," + Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+  }
+
+  private fun startServer() {
+    server?.stop()
+    server = SetupServer(
+      port = SETUP_PORT,
+      deviceId = deviceId(),
+      scan = { scanNetworks() },
+      connect = { ssid, password -> joinNetwork(ssid, password) },
+      currentNetwork = { readCurrentNetwork() },
+    ).also { it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true) }
+  }
+
+  private fun stopSetup() {
+    server?.stop()
+    server = null
+    hotspot?.close()
+    hotspot = null
+  }
+
   override fun definition() = ModuleDefinition {
     Name("Kiosk")
 
     Function<Boolean>("isDeviceOwner") { -> policyManager.isDeviceOwnerApp(context.packageName) }
 
-    // Locks the screen to this app: home and recents stop working, and the
-    // status bar is out of reach.
+    // Locks the screen to this app: home and recents stop leaving it.
     Function<Unit>("lock") { ->
       requireOwner()
       policyManager.setLockTaskPackages(admin, arrayOf(context.packageName))
@@ -85,29 +202,29 @@ class KioskModule : Module() {
       policyManager.addPersistentPreferredActivity(admin, filter, launcher)
     }
 
-    // The only way back from a provisioned totem. adb cannot do this: Android
-    // refuses to remove a device owner that is not a test admin, so without
-    // this the screen can only be recovered by a factory reset.
-    @Suppress("DEPRECATION")
-    Function<Unit>("releaseDevice") { ->
-      requireOwner()
-      activity?.stopLockTask()
-      policyManager.clearPackagePersistentPreferredActivities(admin, context.packageName)
-      policyManager.clearDeviceOwnerApp(context.packageName)
-    }
-
     Function<Unit>("clearHome") { ->
       requireOwner()
       policyManager.clearPackagePersistentPreferredActivities(admin, context.packageName)
+    }
+
+    // The only way back from a provisioned totem. adb cannot do this: Android
+    // refuses to remove a device owner that is not a test admin, so without
+    // this the screen could only be recovered by a factory reset.
+    @Suppress("DEPRECATION")
+    Function<Unit>("releaseDevice") { ->
+      requireOwner()
+      stopSetup()
+      activity?.stopLockTask()
+      policyManager.clearPackagePersistentPreferredActivities(admin, context.packageName)
+      policyManager.clearDeviceOwnerApp(context.packageName)
     }
 
     // A device owner can grant itself the permissions a Wi-Fi scan needs, so
     // the installer never has to answer a system dialog with a remote.
     Function<Unit>("grantWifiPermissions") { ->
       requireOwner()
-      val permissions = mutableListOf(
-        android.Manifest.permission.ACCESS_FINE_LOCATION,
-      )
+      val permissions = mutableListOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         permissions.add(android.Manifest.permission.NEARBY_WIFI_DEVICES)
       }
@@ -122,69 +239,31 @@ class KioskModule : Module() {
       }
     }
 
-    Function("scanNetworks") { ->
-      requireOwner()
-      if (context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
-        != PackageManager.PERMISSION_GRANTED
-      ) {
-        throw CodedException("ERR_NO_SCAN_PERMISSION", "Scanning needs the location permission", null)
-      }
+    Function("scanNetworks") { -> scanNetworks() }
 
-      wifiManager.scanResults
-        .filter { it.SSID.isNotBlank() }
-        .groupBy { it.SSID }
-        // One entry per network, keeping the strongest reading.
-        .map { (ssid, results) ->
-          val best = results.maxByOrNull { it.level } ?: results.first()
-          mapOf(
-            "ssid" to ssid,
-            "level" to WifiManager.calculateSignalLevel(best.level, 5),
-            "secured" to (best.capabilities.contains("WPA") || best.capabilities.contains("WEP")),
-          )
-        }
-        .sortedByDescending { it["level"] as Int }
-    }
+    Function("connect") { ssid: String, password: String? -> joinNetwork(ssid, password) }
 
-    @Suppress("DEPRECATION")
-    Function("connect") { ssid: String, password: String? ->
-      requireOwner()
+    Function("currentNetwork") { -> readCurrentNetwork() }
 
-      val configuration = WifiConfiguration().apply {
-        SSID = "\"$ssid\""
-        if (password.isNullOrEmpty()) {
-          allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE)
-        } else {
-          preSharedKey = "\"$password\""
-        }
-      }
-
-      val networkId = wifiManager.addNetwork(configuration)
-      if (networkId == -1) {
-        throw CodedException("ERR_WIFI_REJECTED", "The network could not be saved", null)
-      }
-
-      wifiManager.disconnect()
-      val enabled = wifiManager.enableNetwork(networkId, true)
-      wifiManager.reconnect()
-
-      enabled
-    }
-
-    // A totem with no network cannot be configured from the dashboard, so it
-    // offers its own: the installer joins it from a phone and types the venue
-    // password there. Only works if the television's Wi-Fi chip can act as an
-    // access point, which many cannot.
-    AsyncFunction("startSetupHotspot") { promise: Promise ->
+    // A totem with no connection cannot be reached from the dashboard, and the
+    // system Wi-Fi screens are drawn in the television's own orientation,
+    // sideways on a vertical totem. So the totem offers its own network and
+    // serves the setup page itself: the installer joins from a phone and types
+    // the venue password on a real keyboard.
+    AsyncFunction("startSetup") { promise: Promise ->
       var settled = false
+
       val callback = object : WifiManager.LocalOnlyHotspotCallback() {
         override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
           if (settled) return
           settled = true
+
           hotspot?.close()
           hotspot = reservation
 
           val ssid: String?
           val password: String?
+
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val configuration = reservation.softApConfiguration
             ssid = configuration.ssid
@@ -192,12 +271,36 @@ class KioskModule : Module() {
           } else {
             @Suppress("DEPRECATION")
             val configuration = reservation.wifiConfiguration
+            @Suppress("DEPRECATION")
             ssid = configuration?.SSID
             @Suppress("DEPRECATION")
             password = configuration?.preSharedKey
           }
 
-          promise.resolve(mapOf("ssid" to ssid, "password" to password))
+          val started = runCatching { startServer() }
+          if (started.isFailure) {
+            promise.reject(
+              CodedException(
+                "ERR_SETUP_SERVER",
+                started.exceptionOrNull()?.message ?: "server",
+                null
+              )
+            )
+            return
+          }
+
+          val address = hotspotAddress()
+
+          promise.resolve(
+            mapOf(
+              "ssid" to ssid,
+              "password" to password,
+              "url" to address?.let { "http://$it:$SETUP_PORT" },
+              // Scanned by the phone to join the totem's network without typing.
+              "joinQr" to qrPng("WIFI:S:$ssid;T:WPA;P:$password;;"),
+              "pageQr" to address?.let { qrPng("http://$it:$SETUP_PORT") },
+            )
+          )
         }
 
         override fun onFailed(reason: Int) {
@@ -212,21 +315,15 @@ class KioskModule : Module() {
       } catch (error: Throwable) {
         if (!settled) {
           settled = true
-          promise.reject(CodedException("ERR_HOTSPOT_UNAVAILABLE", String(error.toString().toCharArray()), null))
+          promise.reject(
+            CodedException("ERR_HOTSPOT_UNAVAILABLE", error.message ?: "unavailable", null)
+          )
         }
       }
     }
 
-    Function<Unit>("stopSetupHotspot") { ->
-      hotspot?.close()
-      hotspot = null
-    }
+    Function<Unit>("stopSetup") { -> stopSetup() }
 
-    Function("currentNetwork") { ->
-      val info = wifiManager.connectionInfo
-      val ssid = info?.ssid?.trim('"')
-
-      if (ssid.isNullOrBlank() || ssid == "<unknown ssid>") null else ssid
-    }
+    OnDestroy { stopSetup() }
   }
 }

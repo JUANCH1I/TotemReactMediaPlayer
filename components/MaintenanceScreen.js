@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -111,6 +112,7 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
     [shortSide]
   )
 
+  const qrSide = clamp(Math.round(shortSide * 0.32), 140, 300)
   const [step, setStep] = useState('pin')
   const [typedPin, setTypedPin] = useState('')
   const [networks, setNetworks] = useState([])
@@ -120,6 +122,7 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
   const [status, setStatus] = useState(null)
   const [currentNetwork, setCurrentNetwork] = useState(null)
   const [locked, setLocked] = useState(false)
+  const [setupSession, setSetupSession] = useState(null)
 
   useEffect(() => {
     try {
@@ -191,6 +194,36 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
 
     setPassword('')
   }, [password, readCurrentNetwork, selected])
+
+  // Configuring from a phone beats configuring with a remote: a real keyboard,
+  // and a page that is readable however the totem is mounted.
+  const startPhoneSetup = useCallback(() => {
+    setStatus('Levantando la red del tótem…')
+
+    Kiosk.startSetup()
+      .then((session) => {
+        setSetupSession(session)
+        setStatus(null)
+        setStep('phone')
+      })
+      .catch((error) => {
+        setStatus(
+          `Este televisor no puede crear su propia red: ${String(error?.message ?? error)}`
+        )
+      })
+  }, [])
+
+  const stopPhoneSetup = useCallback(() => {
+    try {
+      Kiosk.stopSetup()
+    } catch (error) {
+      console.error('Unable to stop the setup network:', error)
+    }
+
+    setSetupSession(null)
+    readCurrentNetwork()
+    setStep('overview')
+  }, [readCurrentNetwork])
 
   const appendKey = (character) => setPassword((value) => value + character)
 
@@ -274,7 +307,8 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
       ) : null}
 
       <View style={[styles.row, { marginTop: type.body * 1.2 }]}>
-        <Key label='Configurar red' onPress={scan} wide size={type.body} focusFirst />
+        <Key label='Configurar desde el celular' onPress={startPhoneSetup} wide size={type.body} focusFirst />
+        <Key label='Configurar acá' onPress={scan} wide size={type.body} />
         {locked ? (
           <Key label='Liberar pantalla' onPress={release} wide size={type.body} />
         ) : null}
@@ -324,6 +358,55 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
 
       <View style={[styles.row, { marginTop: type.body }]}>
         <Key label='Volver' onPress={() => setStep('overview')} wide size={type.body} focusFirst={networks.length === 0} />
+      </View>
+    </View>
+  )
+
+  const renderPhoneSetup = () => (
+    <View style={styles.block}>
+      <Text style={[styles.title, { fontSize: type.title }]}>Configurar desde el celular</Text>
+      <Text
+        style={[
+          styles.value,
+          { fontSize: type.body, marginTop: type.body * 0.5, maxWidth: frameWidth * 0.8 },
+        ]}
+      >
+        1. Escanea el primer código para conectarte a la red del tótem.
+        {'\n'}2. Escanea el segundo para abrir la página de configuración.
+      </Text>
+
+      <View style={[styles.row, { marginTop: type.body }]}>
+        {setupSession?.joinQr ? (
+          <View style={[styles.qrCard, { marginRight: type.body }]}>
+            <Image
+              source={{ uri: setupSession.joinQr }}
+              style={{ width: qrSide, height: qrSide }}
+            />
+            <Text style={[styles.qrLabel, { fontSize: type.body * 0.75 }]}>
+              Red {setupSession.ssid}
+            </Text>
+            <Text style={[styles.qrCode, { fontSize: type.body * 0.75 }]}>
+              {setupSession.password}
+            </Text>
+          </View>
+        ) : null}
+
+        {setupSession?.pageQr ? (
+          <View style={styles.qrCard}>
+            <Image
+              source={{ uri: setupSession.pageQr }}
+              style={{ width: qrSide, height: qrSide }}
+            />
+            <Text style={[styles.qrLabel, { fontSize: type.body * 0.75 }]}>Página</Text>
+            <Text style={[styles.qrCode, { fontSize: type.body * 0.75 }]}>
+              {setupSession.url}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={[styles.row, { marginTop: type.body }]}>
+        <Key label='Terminar' onPress={stopPhoneSetup} wide size={type.body} focusFirst />
       </View>
     </View>
   )
@@ -400,6 +483,7 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
       {step === 'pin' ? renderPin() : null}
       {step === 'overview' ? renderOverview() : null}
       {step === 'networks' ? renderNetworks() : null}
+      {step === 'phone' ? renderPhoneSetup() : null}
       {step === 'password' ? renderPassword() : null}
       {step === 'confirm' ? renderConfirm() : null}
     </View>
@@ -443,6 +527,22 @@ const styles = StyleSheet.create({
   },
   networkRow: {
     borderRadius: 6,
+  },
+  qrCard: {
+    backgroundColor: PALETTE.cream,
+    borderRadius: 14,
+    padding: 12,
+    alignItems: 'center',
+  },
+  qrLabel: {
+    color: PALETTE.base,
+    fontFamily: 'Nunito-Regular',
+    marginTop: 8,
+    opacity: 0.7,
+  },
+  qrCode: {
+    color: PALETTE.base,
+    fontFamily: 'Nunito-Bold',
   },
   key: {
     alignItems: 'center',

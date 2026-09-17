@@ -134,6 +134,14 @@
       jars="/home/juanmanfredi/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/23.0.0/8cc20c07506ec18e0834947b84a864bfc094484e/annotations-23.0.0.jar"
       resolved="org.jetbrains:annotations:23.0.0"/>
   <library
+      name="org.nanohttpd:nanohttpd:2.3.1@jar"
+      jars="/home/juanmanfredi/.gradle/caches/modules-2/files-2.1/org.nanohttpd/nanohttpd/2.3.1/a8d54d1ca554a77f377eff6bf9e16ca8383c8f6c/nanohttpd-2.3.1.jar"
+      resolved="org.nanohttpd:nanohttpd:2.3.1"/>
+  <library
+      name="com.google.zxing:core:3.5.3@jar"
+      jars="/home/juanmanfredi/.gradle/caches/modules-2/files-2.1/com.google.zxing/core/3.5.3/ca1349214a356cd7958651b2d5a0e1f3811a9c4b/core-3.5.3.jar"
+      resolved="com.google.zxing:core:3.5.3"/>
+  <library
       name="com.google.guava:listenablefuture:1.0@jar"
       jars="/home/juanmanfredi/.gradle/caches/modules-2/files-2.1/com.google.guava/listenablefuture/1.0/c949a840a6acbc5268d088e47b04177bf90b3cad/listenablefuture-1.0.jar"
       resolved="com.google.guava:listenablefuture:1.0"
