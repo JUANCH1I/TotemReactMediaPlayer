@@ -162,21 +162,40 @@ export default function App(): React.JSX.Element {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
 
-  // On a provisioned totem the app owns the screen: it is what the television
-  // comes back to, and it cannot be left. On anything else this is skipped, so
-  // the same build still runs on a phone or an unprovisioned television.
+  // Owning the screen is opt in, per totem, from the dashboard. Installing the
+  // app must never lock a television on its own: wireless debugging turns
+  // itself off on every reboot, so a screen locked by surprise can only be
+  // recovered by taking it down and resetting it. The dashboard flag, the
+  // service screen and the remote command are the three ways back.
   useEffect(() => {
+    if (!deviceId) {
+      return undefined;
+    }
+
     try {
       if (!Kiosk.isDeviceOwner()) {
-        return;
+        return undefined;
       }
-
-      Kiosk.setAsHome();
-      Kiosk.lock();
     } catch (error) {
-      console.error('Unable to take over the screen:', error);
+      return undefined;
     }
-  }, []);
+
+    const kioskRef = ref(getDatabase(), `devices/${deviceId}/kioskEnabled`);
+
+    return onValue(kioskRef, (snapshot) => {
+      try {
+        if (snapshot.val() === true) {
+          Kiosk.setAsHome();
+          Kiosk.lock();
+        } else {
+          Kiosk.unlock();
+          Kiosk.clearHome();
+        }
+      } catch (error) {
+        console.error('Unable to apply the kiosk setting:', error);
+      }
+    });
+  }, [deviceId]);
 
   // The status screens ask for Nunito; until it arrives the system face stands
   // in, so a slow font never holds up playback.

@@ -106,6 +106,29 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
   const [upperCase, setUpperCase] = useState(false)
   const [status, setStatus] = useState(null)
   const [currentNetwork, setCurrentNetwork] = useState(null)
+  const [locked, setLocked] = useState(false)
+
+  useEffect(() => {
+    try {
+      setLocked(Kiosk.isDeviceOwner())
+    } catch (error) {
+      setLocked(false)
+    }
+  }, [])
+
+  // The way out of a locked totem, with nothing but the remote. Wireless
+  // debugging turns itself off on every reboot, so a technician standing in
+  // front of the screen cannot count on a cable or a command from outside.
+  const release = useCallback(() => {
+    try {
+      Kiosk.unlock()
+      Kiosk.clearHome()
+      setLocked(false)
+      setStatus('Pantalla liberada. El televisor vuelve a su menú normal.')
+    } catch (error) {
+      setStatus(`No se pudo liberar: ${String(error?.message ?? error)}`)
+    }
+  }, [])
 
   const readCurrentNetwork = useCallback(() => {
     try {
@@ -183,6 +206,9 @@ const MaintenanceScreen = ({ deviceId = null, rotation = 0, onClose }) => {
 
       <View style={[styles.row, { marginTop: type.body * 1.2 }]}>
         <Key label='Configurar red' onPress={scan} wide size={type.body} focusFirst />
+        {locked ? (
+          <Key label='Liberar pantalla' onPress={release} wide size={type.body} />
+        ) : null}
         <Key label='Salir' onPress={onClose} wide tone='danger' size={type.body} />
       </View>
     </View>
