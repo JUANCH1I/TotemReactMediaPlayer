@@ -1,5 +1,6 @@
 import {
   LIVE_GIVE_UP_MS,
+  LIVE_HEALTHY_PLAYING_MS,
   LiveRecoveryAction,
   createLiveStallWatchdog,
   monotonicNow,
@@ -16,9 +17,11 @@ export const LIVE_TARGET_OFFSET_SECONDS = 1.5
 //
 // A session opens a URL, watches it, reopens it with backoff when it drops,
 // and after a long enough streak of failures asks to give the screen back.
-// It never asks while the totem itself is offline (that is the totem's
-// outage, not the broadcast's), and it never leaves audio running after the
-// dashboard clears the broadcast.
+// The streak is continuous failure only: any healthy period resets it, so a
+// broadcast that drops now and then is never given up on. It never asks while
+// the totem itself is offline (that is the totem's outage, not the
+// broadcast's), and it never leaves audio running after the dashboard clears
+// the broadcast.
 
 export const LivePhase = {
   // No frame yet since the stream was first opened.
@@ -43,14 +46,17 @@ export function createLiveSession({
   onGiveUp = () => {},
   onPhase = () => {},
   giveUpAfterMs = LIVE_GIVE_UP_MS,
+  healthyPlayingMs = LIVE_HEALTHY_PLAYING_MS,
   watchdogOptions = {},
 }) {
   let url = null
   let attempt = 0
   let failingSinceMs = null
   let attemptFailed = false
+  let healthyThisAttempt = false
   let gaveUp = false
   let timer = null
+  let healthyTimer = null
   let phase = null
   let subscriptions = []
 
@@ -74,6 +80,40 @@ export function createLiveSession({
     }, delayMs)
   }
 
+  const clearHealthyTimer = () => {
+    if (healthyTimer === null) return
+    cancel(healthyTimer)
+    healthyTimer = null
+  }
+
+  // A healthy period ends the failure streak: whatever happens next is a new
+  // outage with its own ten minutes. Reported once per (re)open.
+  const markHealthy = (evidence) => {
+    if (healthyThisAttempt) return
+
+    healthyThisAttempt = true
+    console.info(
+      `Live stream healthy (${evidence})` +
+        (failingSinceMs === null ? '' : '; failure streak reset')
+    )
+    failingSinceMs = null
+    attempt = 0
+  }
+
+  // Playing for a while is enough evidence, unless the player is reporting a
+  // position that never moves: that is a frozen stream and the stall watchdog
+  // will deal with it.
+  const evaluatePlayingHealth = () => {
+    healthyTimer = null
+    const { samples, progressSeconds } = watchdog.snapshot()
+    if (samples > 0 && progressSeconds === 0) {
+      console.info('Live stream reports playing but its position does not move')
+      return
+    }
+
+    markHealthy(`playing for ${healthyPlayingMs} ms`)
+  }
+
   // The native player may already be released when the screen unmounts
   // (expo-video frees it on its own); a rejected call must never throw out
   // of an effect cleanup, which would take the whole app down.
@@ -83,6 +123,12 @@ export function createLiveSession({
     } catch (error) {
       console.warn('Live player pause skipped:', error?.message || error)
     }
+    // Unloading a player that holds nothing (idle, or errored before it
+    // loaded) makes ExoPlayer open an empty source and log a playback error;
+    // only a loaded or loading source needs releasing. An unknown status is
+    // treated as loaded so audio can never be left running.
+    const status = player.status
+    if (status === 'idle' || status === 'error') return
     try {
       player.replace(null)
     } catch (error) {
@@ -92,11 +138,7 @@ export function createLiveSession({
 
   const watchdog = createLiveStallWatchdog({
     onStall: () => fail('playback stalled'),
-    // Only real progress proves a recovery worked; "playing" alone does not.
-    onHealthy: () => {
-      failingSinceMs = null
-      attempt = 0
-    },
+    onHealthy: () => markHealthy('position advanced'),
     schedule,
     cancel,
     ...watchdogOptions,
@@ -104,6 +146,8 @@ export function createLiveSession({
 
   const open = () => {
     attemptFailed = false
+    healthyThisAttempt = false
+    clearHealthyTimer()
     watchdog.start()
     player.replace({ uri: url, contentType: 'hls', liveTargetOffset: LIVE_TARGET_OFFSET_SECONDS })
   }
@@ -139,9 +183,13 @@ export function createLiveSession({
     if (url === null || attemptFailed || gaveUp) return
 
     attemptFailed = true
+    clearHealthyTimer()
     watchdog.stop()
     const nowMs = now()
-    if (failingSinceMs === null) failingSinceMs = nowMs
+    if (failingSinceMs === null) {
+      failingSinceMs = nowMs
+      console.info(`Live stream failure streak started: ${reason}`)
+    }
     attempt += 1
     setPhase(LivePhase.RETRYING)
 
@@ -176,7 +224,13 @@ export function createLiveSession({
 
       if (isPlaying) {
         setPhase(LivePhase.PLAYING)
+        // The window restarts after every pause or rebuffer: it must be one
+        // uninterrupted stretch of playback.
+        if (!healthyThisAttempt && healthyTimer === null) {
+          healthyTimer = schedule(evaluatePlayingHealth, healthyPlayingMs)
+        }
       } else {
+        clearHealthyTimer()
         watchdog.allowGrace()
       }
     },
@@ -212,8 +266,10 @@ export function createLiveSession({
 
   const reset = () => {
     clearTimer()
+    clearHealthyTimer()
     watchdog.stop()
     attemptFailed = false
+    healthyThisAttempt = false
     attempt = 0
     failingSinceMs = null
     gaveUp = false

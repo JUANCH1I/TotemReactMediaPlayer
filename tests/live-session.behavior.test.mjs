@@ -7,10 +7,22 @@ import vm from 'node:vm'
 // that keeps erroring, one that freezes while claiming to play, a totem that
 // lost its own connection, and a dashboard that clears the broadcast.
 
+// The session narrates its state machine to logcat; the lines are captured
+// here so the healthy/streak transitions can be asserted.
+const logs = []
+
 async function loadModule() {
   const url = new URL('../components/utils/liveSession.js', import.meta.url)
   const source = readFileSync(url, 'utf8')
-  const context = vm.createContext({ Date, Math, Number, Promise, setTimeout, clearTimeout })
+  const context = vm.createContext({
+    Date,
+    Math,
+    Number,
+    Promise,
+    setTimeout,
+    clearTimeout,
+    console: { info: (line) => logs.push(line), warn() {}, error() {} },
+  })
   const sources = {
     './liveRecovery': '../components/utils/liveRecovery.js',
     './mediaRecoveryPolicy': '../components/utils/mediaRecoveryPolicy.js',
@@ -113,8 +125,10 @@ const frozen = (player) => {
   player.emit('timeUpdate', { currentTime: 12 })
 }
 
-function createHarness(reaction, { connected = true } = {}) {
-  const scheduler = createScheduler()
+function createHarness(
+  reaction,
+  { connected = true, scheduler = createScheduler(), healthyPlayingMs } = {}
+) {
   const player = createFakePlayer(reaction)
   const phases = []
   let giveUps = 0
@@ -129,6 +143,7 @@ function createHarness(reaction, { connected = true } = {}) {
       giveUps += 1
     },
     onPhase: (phase) => phases.push(phase),
+    ...(healthyPlayingMs === undefined ? {} : { healthyPlayingMs }),
     watchdogOptions: { startupGraceMs: 5000, stallThresholdMs: 3000 },
   })
   return {
@@ -323,6 +338,142 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
   assert.equal(scheduler.activeCount(), 0)
   assert.equal(session.getPhase(), null)
   assert.equal(player.calls.filter(([call]) => call === 'play').length, 0)
+}
+
+// A broadcast the test steers: it errors on open while the mode is 'error',
+// and plays with a position that advances every second while it is
+// 'healthy'; flipping to 'error' mid-playback drops it at the next tick.
+function createControlledStream(scheduler) {
+  let mode = 'error'
+  let ticking = false
+  let position = 0
+  const tick = (player) =>
+    scheduler.schedule(() => {
+      if (mode !== 'healthy') {
+        ticking = false
+        player.emit('statusChange', { status: 'error', error: { message: 'dropped' } })
+        return
+      }
+
+      position += 1
+      player.emit('timeUpdate', { currentTime: position })
+      tick(player)
+    }, 1000)
+
+  return {
+    reaction: (player) => {
+      if (mode !== 'healthy') {
+        erroring(player)
+        return
+      }
+
+      player.emit('statusChange', { status: 'readyToPlay' })
+      player.emit('playingChange', { isPlaying: true })
+      if (!ticking) {
+        ticking = true
+        tick(player)
+      }
+    },
+    setMode: (next) => {
+      mode = next
+    },
+  }
+}
+
+{
+  // The give-up needs ten minutes of CONTINUOUS failure: nine minutes down,
+  // two minutes up, nine minutes down is two separate outages, not one.
+  const scheduler = createScheduler()
+  const stream = createControlledStream(scheduler)
+  const { session, phases, giveUps } = createHarness(stream.reaction, { scheduler })
+  logs.length = 0
+  session.start(streamUrl)
+  scheduler.advance(9 * 60_000)
+  assert.equal(giveUps(), 0)
+  assert.equal(logs.filter((line) => line.includes('failure streak started')).length, 1)
+
+  stream.setMode('healthy')
+  scheduler.advance(2 * 60_000)
+  assert.equal(phases.at(-1), LivePhase.PLAYING)
+  assert.equal(
+    logs.filter((line) => line.startsWith('Live stream healthy')).length,
+    1,
+    'One healthy line for the recovery.'
+  )
+
+  stream.setMode('error')
+  scheduler.advance(9 * 60_000)
+  assert.equal(giveUps(), 0, 'Two minutes of healthy playback reset the streak.')
+  assert.equal(
+    logs.filter((line) => line.includes('failure streak started')).length,
+    2,
+    'The second outage starts its own streak.'
+  )
+  scheduler.advance(2 * 60_000)
+  assert.equal(giveUps(), 1, 'The second outage, on its own, does reach the limit.')
+}
+
+{
+  // Forty-four seconds of healthy playback, then ten minutes of failure: the
+  // streak starts at the drop, and gives up exactly once.
+  const scheduler = createScheduler()
+  const stream = createControlledStream(scheduler)
+  stream.setMode('healthy')
+  const { session, giveUps } = createHarness(stream.reaction, { scheduler })
+  session.start(streamUrl)
+  scheduler.advance(44_000)
+  assert.equal(giveUps(), 0)
+
+  stream.setMode('error')
+  scheduler.advance(9 * 60_000)
+  assert.equal(giveUps(), 0, 'Not yet.')
+  scheduler.advance(2 * 60_000)
+  assert.equal(giveUps(), 1, 'Exactly one give-up after ten minutes of continuous failure.')
+  scheduler.advance(60 * 60_000)
+  assert.equal(giveUps(), 1)
+}
+
+{
+  // A player that never reports its position (no timeUpdate at all) is
+  // trusted on isPlaying alone: playing for the window counts as healthy, so
+  // a stream that keeps coming back is never given up on.
+  const playingSilently = (player) => {
+    player.emit('statusChange', { status: 'readyToPlay' })
+    player.emit('playingChange', { isPlaying: true })
+  }
+  const { scheduler, player, session, giveUps } = createHarness(playingSilently, {
+    healthyPlayingMs: 2000,
+  })
+  logs.length = 0
+  session.start(streamUrl)
+  scheduler.advance(3000)
+  assert.equal(logs.filter((line) => line.startsWith('Live stream healthy')).length, 1)
+  player.emit('statusChange', { status: 'error', error: { message: 'drop' } })
+  scheduler.advance(30 * 60_000)
+  assert.equal(giveUps(), 0, 'Each reopen plays again, so no streak ever lasts ten minutes.')
+}
+
+{
+  // Unloading is only for a player that actually holds a source; an errored
+  // or idle player is left alone so ExoPlayer does not log a phantom error.
+  for (const [status, expectUnload] of [
+    ['error', false],
+    ['idle', false],
+    ['readyToPlay', true],
+    ['loading', true],
+    [undefined, true],
+  ]) {
+    const { player, session } = createHarness(erroring)
+    player.status = status
+    session.start(streamUrl)
+    player.calls.length = 0
+    session.stop()
+    assert.deepEqual(
+      player.calls,
+      expectUnload ? [['pause'], ['replace', null]] : [['pause']],
+      `status ${String(status)}: unload ${expectUnload ? 'expected' : 'skipped'}`
+    )
+  }
 }
 
 console.log('Live session behavior checks passed.')

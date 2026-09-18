@@ -12,6 +12,11 @@ export const LIVE_GIVE_UP_MS = 10 * 60 * 1000
 // Progress the stream must make before it counts as healthy again. A stream
 // that says "playing" but never advances is not healthy.
 export const LIVE_HEALTHY_AFTER_SECONDS = 15
+// Wall-clock time in the "playing" state after which a stream counts as
+// healthy even if the player never reports its position (some devices do not
+// deliver timeUpdate for live HLS). A stream whose reported position does not
+// move in that window is frozen, not healthy.
+export const LIVE_HEALTHY_PLAYING_MS = 5000
 
 export const LiveRecoveryAction = {
   RETRY: 'RETRY',
@@ -69,6 +74,7 @@ export function createLiveStallWatchdog({
   let active = false
   let lastPlaybackTime = null
   let progressSeconds = 0
+  let samples = 0
   let healthyReported = false
   let timeout = null
 
@@ -99,6 +105,9 @@ export function createLiveStallWatchdog({
       active = true
       lastPlaybackTime = null
       progressSeconds = 0
+      samples = 0
+      // Re-armed on every (re)open, so a stream that recovers after a later
+      // outage is reported healthy again.
       healthyReported = false
       arm(startupGraceMs)
     },
@@ -108,6 +117,7 @@ export function createLiveStallWatchdog({
     recordProgress(currentTime) {
       if (!active || !Number.isFinite(currentTime)) return
 
+      samples += 1
       // The first reading is where a live stream happens to start, not
       // progress; only movement from there counts.
       if (lastPlaybackTime === null) {
@@ -125,6 +135,11 @@ export function createLiveStallWatchdog({
         healthyReported = true
         onHealthy()
       }
+    },
+    // What the player has reported since the last start: how many position
+    // readings arrived and how far they moved in total.
+    snapshot() {
+      return { samples, progressSeconds }
     },
     stop() {
       active = false
