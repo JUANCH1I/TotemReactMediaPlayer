@@ -69,9 +69,20 @@ export function createLiveSession({
     }, delayMs)
   }
 
+  // The native player may already be released when the screen unmounts
+  // (expo-video frees it on its own); a rejected call must never throw out
+  // of an effect cleanup, which would take the whole app down.
   const silence = () => {
-    player.pause()
-    player.replace(null)
+    try {
+      player.pause()
+    } catch (error) {
+      console.warn('Live player pause skipped:', error?.message || error)
+    }
+    try {
+      player.replace(null)
+    } catch (error) {
+      console.warn('Live player release skipped:', error?.message || error)
+    }
   }
 
   const watchdog = createLiveStallWatchdog({

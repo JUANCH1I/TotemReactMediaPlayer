@@ -264,15 +264,13 @@ export default function LiveScreen() {
         />
       ) : null}
       {overlay !== null && source !== undefined ? (
-        <View style={styles.overlay} pointerEvents='none'>
-          <StatusScreen
-            tone={overlay.tone}
-            title={overlay.title}
-            message={overlay.message}
-            deviceId={deviceId}
-            rotation={rotation}
-          />
-        </View>
+        <StatusScreen
+          tone={overlay.tone}
+          title={overlay.title}
+          message={overlay.message}
+          deviceId={deviceId}
+          rotation={rotation}
+        />
       ) : null}
     </View>
   )
@@ -284,8 +282,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'black',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
   },
 })

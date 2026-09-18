@@ -68,7 +68,8 @@ assert.match(sessionSource, /if \(!isConnected\(\)\)/)
 
 // Audio never outlives the broadcast: the session silences the player when
 // the node is cleared and when the screen goes away.
-assert.match(sessionSource, /player\.pause\(\)\s*\n\s*player\.replace\(null\)/)
+assert.match(sessionSource, /try \{\s*\n\s*player\.pause\(\)/)
+assert.match(sessionSource, /try \{\s*\n\s*player\.replace\(null\)/)
 assert.ok(
   (source.match(/session(?:Ref\.current)?\.stop\(\)/g) ?? []).length >= 2,
   'The session must be stopped when the broadcast changes and on unmount.'
