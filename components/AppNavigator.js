@@ -5,6 +5,7 @@ import MediaPlayer from './MediaPlayer'
 import TimeWeatherScreen from './TimeWeatherScreen'
 import Canvas from './Canvas'
 import Carousel from './Carousel'
+import LiveScreen from './LiveScreen'
 import { getDeviceId } from './utils/deviceId'
 
 const SCREEN_COMPONENTS = Object.freeze({
@@ -12,6 +13,7 @@ const SCREEN_COMPONENTS = Object.freeze({
   TimeWeather: TimeWeatherScreen,
   Canvas,
   Carousel,
+  Live: LiveScreen,
 })
 
 function resolveScreenComponent(screenName, screenComponents) {

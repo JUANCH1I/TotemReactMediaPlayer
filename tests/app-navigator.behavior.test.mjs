@@ -26,7 +26,12 @@ const screens = Object.freeze({
   TimeWeather: Symbol('TimeWeather'),
   Canvas: Symbol('Canvas'),
   Carousel: Symbol('Carousel'),
+  Live: Symbol('Live'),
 })
+
+// The live screen is reached only through the frozen allowlist, like the rest.
+assert.match(source, /Live:\s*LiveScreen,/)
+assert.match(source, /import LiveScreen from '\.\/LiveScreen'/)
 
 for (const [screenName, component] of Object.entries(screens)) {
   assert.strictEqual(
