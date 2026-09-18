@@ -6,7 +6,8 @@
     "android": "cross-env EXPO_TV=1 expo run:android",
     "ios": "cross-env EXPO_TV=1 expo run:ios",
     "web": "expo start --web",
-    "prebuild": "cross-env EXPO_TV=1 expo prebuild --clean"
+    "prebuild": "cross-env EXPO_TV=1 expo prebuild --clean",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",
@@ -33,6 +34,7 @@
     "@react-native-tvos/config-tv": "^0.1.6",
     "@types/react": "~19.2.14",
     "cross-env": "^7.0.3",
+    "patch-package": "^8.0.1",
     "typescript": "~6.0.3"
   },
   "expo": {

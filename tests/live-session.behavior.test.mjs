@@ -153,7 +153,7 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
   session.start(streamUrl)
   assert.deepEqual(
     plain(replaces(player)[0]),
-    ['replace', { uri: streamUrl, contentType: 'hls' }],
+    ['replace', { uri: streamUrl, contentType: 'hls', liveTargetOffset: 1.5 }],
     'The stream is opened explicitly as HLS.'
   )
   assert.deepEqual(phases, [LivePhase.CONNECTING, LivePhase.RETRYING])

@@ -62,6 +62,14 @@ export default function LiveScreen() {
     instance.timeUpdateEventInterval = 1
     // The dashboard slider drives the television's volume, as in MediaPlayer.
     instance.volume = 1
+    // A broadcast is watched at the live edge: ExoPlayer's default 2.5 s of
+    // buffer before playback would sit permanently between the screen and
+    // the operator. Half a second is enough to absorb the tunnel jitter.
+    instance.bufferOptions = {
+      minBufferForPlayback: 0.5,
+      preferredForwardBufferDuration: 3,
+      waitsToMinimizeStalling: false,
+    }
   })
 
   // Hands the screen back to the dashboard's chosen screen. The transaction

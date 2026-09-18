@@ -1,0 +1,44 @@
+diff --git a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSource.kt b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSource.kt
+index b0bfb49..dc166ac 100644
+--- a/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSource.kt
++++ b/node_modules/expo-video/android/src/main/java/expo/modules/video/records/VideoSource.kt
+@@ -28,7 +28,10 @@ class VideoSource(
+   @Field var metadata: VideoMetadata? = null,
+   @Field var headers: Map<String, String>? = null,
+   @Field var useCaching: Boolean = false,
+-  @Field val contentType: ContentType = ContentType.AUTO
++  @Field val contentType: ContentType = ContentType.AUTO,
++  // Totem patch: distance to keep from the live edge, in seconds. When set,
++  // ExoPlayer targets this offset instead of the playlist's hold-back values.
++  @Field val liveTargetOffset: Double? = null
+ ) : Record, Serializable {
+   private fun toMediaId(): String {
+     return "uri:${this.uri}" +
+@@ -41,7 +44,8 @@ class VideoSource(
+       "NotificationDataTitle:${this.metadata?.title}" +
+       "NotificationDataSecondaryText:${this.metadata?.artist}" +
+       "NotificationDataArtwork:${this.metadata?.artwork?.path}" +
+-      "ContentType:${this.contentType.value}"
++      "ContentType:${this.contentType.value}" +
++      "LiveTargetOffset:${this.liveTargetOffset}"
+   }
+ 
+   fun toMediaSource(context: Context): MediaSource? {
+@@ -56,6 +60,17 @@ class VideoSource(
+       contentType.toMimeTypeString()?.let {
+         setMimeType(it)
+       }
++      liveTargetOffset?.let { seconds ->
++        setLiveConfiguration(
++          MediaItem.LiveConfiguration.Builder()
++            .setTargetOffsetMs((seconds * 1000).toLong())
++            .setMinOffsetMs((seconds * 500).toLong())
++            .setMaxOffsetMs((seconds * 3000).toLong())
++            .setMinPlaybackSpeed(0.97f)
++            .setMaxPlaybackSpeed(1.1f)
++            .build()
++        )
++      }
+       drm?.let {
+         if (it.type.isSupported()) {
+           setDrmConfiguration(it.toDRMConfiguration())

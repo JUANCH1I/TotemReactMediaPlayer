@@ -6,6 +6,11 @@ import {
   resolveLiveRecovery,
 } from './liveRecovery'
 
+// How far behind the live edge a broadcast plays. ExoPlayer otherwise sits
+// several segments back; 1.5 s absorbs the tunnel jitter and keeps the
+// screens close to the operator (needs the expo-video patch in patches/).
+export const LIVE_TARGET_OFFSET_SECONDS = 1.5
+
 // The life of one live broadcast on a screen, kept out of React so it can be
 // driven by a fake player and a fake clock.
 //
@@ -100,7 +105,7 @@ export function createLiveSession({
   const open = () => {
     attemptFailed = false
     watchdog.start()
-    player.replace({ uri: url, contentType: 'hls' })
+    player.replace({ uri: url, contentType: 'hls', liveTargetOffset: LIVE_TARGET_OFFSET_SECONDS })
   }
 
   // Asks for the screen back, exactly once, and only when the totem can
