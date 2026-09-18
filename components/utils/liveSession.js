@@ -100,17 +100,11 @@ export function createLiveSession({
     attempt = 0
   }
 
-  // Playing for a while is enough evidence, unless the player is reporting a
-  // position that never moves: that is a frozen stream and the stall watchdog
-  // will deal with it.
+  // Uninterrupted playback for the window is the evidence of health. The
+  // reported position is deliberately not consulted: on the totems it stays
+  // put for live HLS while the broadcast is visibly fine.
   const evaluatePlayingHealth = () => {
     healthyTimer = null
-    const { samples, progressSeconds } = watchdog.snapshot()
-    if (samples > 0 && progressSeconds === 0) {
-      console.info('Live stream reports playing but its position does not move')
-      return
-    }
-
     markHealthy(`playing for ${healthyPlayingMs} ms`)
   }
 
@@ -138,7 +132,6 @@ export function createLiveSession({
 
   const watchdog = createLiveStallWatchdog({
     onStall: () => fail('playback stalled'),
-    onHealthy: () => markHealthy('position advanced'),
     schedule,
     cancel,
     ...watchdogOptions,
@@ -213,8 +206,6 @@ export function createLiveSession({
 
       if (status === 'error') {
         fail(error?.message ?? 'player error')
-      } else if (status === 'loading') {
-        watchdog.allowGrace()
       } else if (status === 'readyToPlay' && !player.playing) {
         player.play()
       }
@@ -222,6 +213,7 @@ export function createLiveSession({
     handlePlaying({ isPlaying }) {
       if (url === null || attemptFailed || gaveUp) return
 
+      watchdog.setPlaying(isPlaying)
       if (isPlaying) {
         setPhase(LivePhase.PLAYING)
         // The window restarts after every pause or rebuffer: it must be one
@@ -231,13 +223,7 @@ export function createLiveSession({
         }
       } else {
         clearHealthyTimer()
-        watchdog.allowGrace()
       }
-    },
-    handleProgress({ currentTime }) {
-      if (url === null || attemptFailed || gaveUp) return
-
-      watchdog.recordProgress(currentTime)
     },
     handleError(reason) {
       fail(reason)
@@ -254,7 +240,6 @@ export function createLiveSession({
     subscriptions = [
       player.addListener('statusChange', handlers.handleStatus),
       player.addListener('playingChange', handlers.handlePlaying),
-      player.addListener('timeUpdate', handlers.handleProgress),
       player.addListener('playToEnd', handlers.handleEnd),
     ]
   }

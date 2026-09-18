@@ -30,7 +30,9 @@ const plain = (value) => JSON.parse(JSON.stringify(value))
 
 const {
   LIVE_GIVE_UP_MS,
-  LIVE_HEALTHY_AFTER_SECONDS,
+  LIVE_HEALTHY_PLAYING_MS,
+  LIVE_STALL_MS,
+  LIVE_STARTUP_GRACE_MS,
   LiveRecoveryAction,
   createLiveStallWatchdog,
   monotonicNow,
@@ -38,7 +40,9 @@ const {
 } = await loadModule()
 
 assert.equal(LIVE_GIVE_UP_MS, 10 * 60 * 1000)
-assert.equal(LIVE_HEALTHY_AFTER_SECONDS, 15)
+assert.equal(LIVE_HEALTHY_PLAYING_MS, 5000)
+assert.equal(LIVE_STARTUP_GRACE_MS, 20000)
+assert.equal(LIVE_STALL_MS, 12000)
 
 {
   // Short outages: the single-item backoff, 2 s doubling to a 30 s ceiling.
@@ -130,7 +134,8 @@ assert.equal(LIVE_HEALTHY_AFTER_SECONDS, 15)
   }
 }
 
-// The stall watchdog: one stream, one session at a time.
+// The stall watchdog: one stream, one session at a time, judged only by the
+// player's playing state. The reported position is never consulted.
 function createScheduler() {
   let now = 0
   let nextId = 1
@@ -165,99 +170,88 @@ function createScheduler() {
 function createHarness() {
   const scheduler = createScheduler()
   let stalls = 0
-  let healthy = 0
   const watchdog = createLiveStallWatchdog({
     onStall: () => {
       stalls += 1
     },
-    onHealthy: () => {
-      healthy += 1
-    },
     schedule: scheduler.schedule,
     cancel: scheduler.cancel,
     startupGraceMs: 100,
-    stallThresholdMs: 50,
-    minimumProgressSeconds: 0.25,
-    healthyAfterSeconds: 3,
+    stallMs: 50,
   })
-  return { scheduler, watchdog, stalls: () => stalls, healthy: () => healthy }
+  return { scheduler, watchdog, stalls: () => stalls }
 }
 
 {
+  // A stream that never reaches "playing" trips the startup grace once.
   const { scheduler, watchdog, stalls } = createHarness()
   watchdog.start()
-  scheduler.advance(80)
-  watchdog.recordProgress(100.5)
-  scheduler.advance(10)
-  watchdog.recordProgress(101)
-  scheduler.advance(40)
-  watchdog.recordProgress(101.5)
-  scheduler.advance(40)
-  assert.equal(stalls(), 0, 'Progress keeps the stream alive.')
-  scheduler.advance(10)
-  assert.equal(stalls(), 1, 'A frozen stream trips the watchdog once.')
-  scheduler.advance(500)
+  scheduler.advance(99)
+  assert.equal(stalls(), 0)
+  scheduler.advance(1)
+  assert.equal(stalls(), 1)
+  scheduler.advance(1000)
   assert.equal(stalls(), 1)
 }
 
 {
-  // A stream is healthy only after real, accumulated progress; the first
-  // reading is where a live stream happens to start, not progress, and
-  // "playing" without movement never counts.
-  const { scheduler, watchdog, healthy } = createHarness()
-  watchdog.start()
-  watchdog.recordProgress(500)
-  assert.equal(healthy(), 0, 'The first reading is a starting point.')
-  watchdog.recordProgress(501)
-  watchdog.recordProgress(502)
-  scheduler.advance(10)
-  assert.equal(healthy(), 0, 'Two seconds is not enough.')
-  watchdog.recordProgress(503)
-  assert.equal(healthy(), 1, 'Three seconds of movement is.')
-  watchdog.recordProgress(510)
-  assert.equal(healthy(), 1, 'Reported once per session.')
-  assert.deepEqual(plain(watchdog.snapshot()), { samples: 5, progressSeconds: 10 })
-  watchdog.start()
-  assert.deepEqual(plain(watchdog.snapshot()), { samples: 0, progressSeconds: 0 }, 'A new session starts clean.')
-  watchdog.recordProgress(0)
-  watchdog.recordProgress(0.1)
-  watchdog.recordProgress(0.2)
-  assert.equal(healthy(), 1, 'Jitter below the progress floor is not movement.')
-}
-
-{
+  // Buffering before the first frame does not extend the startup grace.
   const { scheduler, watchdog, stalls } = createHarness()
   watchdog.start()
   scheduler.advance(90)
-  watchdog.allowGrace()
-  scheduler.advance(90)
-  assert.equal(stalls(), 0, 'Rebuffering earns fresh grace.')
-  watchdog.recordProgress(0.1)
-  scheduler.advance(20)
-  assert.equal(stalls(), 1, 'Negligible progress does not conceal a stall.')
+  watchdog.setPlaying(false)
+  scheduler.advance(10)
+  assert.equal(stalls(), 1)
 }
 
 {
+  // Playing is healthy for as long as it lasts, whatever the position does;
+  // short rebuffers are absorbed; a long one is a stall, reported once.
+  const { scheduler, watchdog, stalls } = createHarness()
+  watchdog.start()
+  scheduler.advance(80)
+  watchdog.setPlaying(true)
+  scheduler.advance(10_000)
+  assert.equal(stalls(), 0, 'Continuous playback never stalls.')
+  watchdog.setPlaying(false)
+  scheduler.advance(49)
+  watchdog.setPlaying(true)
+  scheduler.advance(1000)
+  assert.equal(stalls(), 0, 'A short rebuffer is not a stall.')
+  watchdog.setPlaying(false)
+  scheduler.advance(49)
+  assert.equal(stalls(), 0)
+  scheduler.advance(1)
+  assert.equal(stalls(), 1, 'Buffering for the threshold is a stall.')
+  watchdog.setPlaying(true)
+  watchdog.setPlaying(false)
+  scheduler.advance(1000)
+  assert.equal(stalls(), 1, 'A tripped session stays quiet until restarted.')
+}
+
+{
+  // A timer from a previous attempt cannot fire into the next.
   const { scheduler, watchdog, stalls } = createHarness()
   watchdog.start()
   const staleTimer = scheduler.latestId()
   watchdog.start()
   scheduler.invokeEvenIfCancelled(staleTimer)
-  assert.equal(stalls(), 0, 'A timer from a previous attempt cannot fire into the next.')
+  assert.equal(stalls(), 0)
   scheduler.advance(100)
   assert.equal(stalls(), 1)
 }
 
 {
+  // A stopped watchdog is inert, whatever arrives late.
   const { scheduler, watchdog, stalls } = createHarness()
   watchdog.start()
   const timer = scheduler.latestId()
   watchdog.stop()
   assert.equal(scheduler.activeCount(), 0)
   scheduler.invokeEvenIfCancelled(timer)
-  watchdog.recordProgress(5)
+  watchdog.setPlaying(false)
   scheduler.advance(1000)
-  assert.equal(stalls(), 0, 'A stopped watchdog is inert, whatever arrives late.')
+  assert.equal(stalls(), 0)
 }
 
 console.log('Live recovery behavior checks passed.')

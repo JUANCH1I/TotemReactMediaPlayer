@@ -59,7 +59,6 @@ export default function LiveScreen() {
   const player = useVideoPlayer('', (instance) => {
     instance.audioMixingMode = 'mixWithOthers'
     instance.loop = false
-    instance.timeUpdateEventInterval = 1
     // The dashboard slider drives the television's volume, as in MediaPlayer.
     instance.volume = 1
     // A broadcast is watched at the live edge: ExoPlayer's default 2.5 s of

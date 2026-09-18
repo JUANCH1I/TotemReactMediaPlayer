@@ -9,14 +9,17 @@ import { resolveMediaRecovery } from './mediaRecoveryPolicy'
 // room is worse than the playlist, so the totem hands itself back.
 
 export const LIVE_GIVE_UP_MS = 10 * 60 * 1000
-// Progress the stream must make before it counts as healthy again. A stream
-// that says "playing" but never advances is not healthy.
-export const LIVE_HEALTHY_AFTER_SECONDS = 15
 // Wall-clock time in the "playing" state after which a stream counts as
-// healthy even if the player never reports its position (some devices do not
-// deliver timeUpdate for live HLS). A stream whose reported position does not
-// move in that window is frozen, not healthy.
+// healthy. Playback state is the only evidence used: expo-video's reported
+// position does not advance reliably for live HLS on the totems, while the
+// player's playing/buffering state does track the broadcast.
 export const LIVE_HEALTHY_PLAYING_MS = 5000
+// A stream must reach "playing" within this after being opened.
+export const LIVE_STARTUP_GRACE_MS = 20000
+// Once it has played, this long without playing (buffering or paused) is a
+// stall. A frozen encoder ends up here too: ExoPlayer drains its window and
+// reports buffering.
+export const LIVE_STALL_MS = 12000
 
 export const LiveRecoveryAction = {
   RETRY: 'RETRY',
@@ -54,28 +57,21 @@ export function resolveLiveRecovery({
   }
 }
 
-// A stream that stops advancing is as broken as one that errors, but the
-// native player only reports the latter. This is the MediaPlayer watchdog
-// reduced to one stream: no item generations, just a session that `start`
-// opens and `stop` closes so a timer from a previous attempt cannot fire into
-// the next one. It also reports when the stream has genuinely advanced for a
-// while, which is the only evidence that a recovery worked.
+// A stream that stops playing is as broken as one that errors, but the
+// native player only reports the latter. This watchdog watches the player's
+// playing state alone: it never looks at the reported position, which does
+// not advance reliably for live HLS. `start` opens a session and `stop`
+// closes it, so a timer from a previous attempt cannot fire into the next.
 export function createLiveStallWatchdog({
   onStall,
-  onHealthy = () => {},
   schedule = setTimeout,
   cancel = clearTimeout,
-  startupGraceMs = 20000,
-  stallThresholdMs = 12000,
-  minimumProgressSeconds = 0.25,
-  healthyAfterSeconds = LIVE_HEALTHY_AFTER_SECONDS,
+  startupGraceMs = LIVE_STARTUP_GRACE_MS,
+  stallMs = LIVE_STALL_MS,
 }) {
   let session = 0
   let active = false
-  let lastPlaybackTime = null
-  let progressSeconds = 0
-  let samples = 0
-  let healthyReported = false
+  let hasPlayed = false
   let timeout = null
 
   const clearTimer = () => {
@@ -103,43 +99,21 @@ export function createLiveStallWatchdog({
       clearTimer()
       session += 1
       active = true
-      lastPlaybackTime = null
-      progressSeconds = 0
-      samples = 0
-      // Re-armed on every (re)open, so a stream that recovers after a later
-      // outage is reported healthy again.
-      healthyReported = false
+      hasPlayed = false
       arm(startupGraceMs)
     },
-    allowGrace() {
-      arm(startupGraceMs)
-    },
-    recordProgress(currentTime) {
-      if (!active || !Number.isFinite(currentTime)) return
+    // The player's playing state, as it changes. Playing disarms the timer;
+    // not playing arms the stall (or, before the first frame, leaves the
+    // startup grace running rather than extending it).
+    setPlaying(isPlaying) {
+      if (!active) return
 
-      samples += 1
-      // The first reading is where a live stream happens to start, not
-      // progress; only movement from there counts.
-      if (lastPlaybackTime === null) {
-        lastPlaybackTime = currentTime
-        return
+      if (isPlaying) {
+        hasPlayed = true
+        clearTimer()
+      } else if (hasPlayed) {
+        arm(stallMs)
       }
-
-      const delta = Math.abs(currentTime - lastPlaybackTime)
-      if (delta < minimumProgressSeconds) return
-
-      lastPlaybackTime = currentTime
-      progressSeconds += delta
-      arm(stallThresholdMs)
-      if (!healthyReported && progressSeconds >= healthyAfterSeconds) {
-        healthyReported = true
-        onHealthy()
-      }
-    },
-    // What the player has reported since the last start: how many position
-    // readings arrived and how far they moved in total.
-    snapshot() {
-      return { samples, progressSeconds }
     },
     stop() {
       active = false

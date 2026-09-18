@@ -66,6 +66,23 @@ assert.match(source, /current === LIVE_SCREEN_NAME \? returnTo : undefined/)
 assert.doesNotMatch(source, /\bset\(ref\(/, 'A blind write could overwrite a dashboard decision.')
 assert.match(sessionSource, /if \(!isConnected\(\)\)/)
 
+// Progress is judged by the player's playing state only: the reported
+// position must never feed a stall or health decision.
+const recoverySource = readFileSync(
+  new URL('../components/utils/liveRecovery.js', import.meta.url),
+  'utf8'
+)
+for (const [name, text] of [
+  ['LiveScreen', source],
+  ['liveSession', sessionSource],
+  ['liveRecovery', recoverySource],
+]) {
+  assert.doesNotMatch(text, /currentTime/, `${name} must not read currentTime.`)
+  assert.doesNotMatch(text, /timeUpdate/, `${name} must not subscribe to timeUpdate.`)
+}
+assert.match(sessionSource, /watchdog\.setPlaying\(isPlaying\)/)
+assert.match(sessionSource, /player\.addListener\('playingChange'/)
+
 // Audio never outlives the broadcast: the session silences the player when
 // the node is cleared and when the screen goes away.
 assert.match(sessionSource, /try \{\s*\n\s*player\.pause\(\)/)

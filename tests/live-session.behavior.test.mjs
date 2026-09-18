@@ -119,10 +119,22 @@ function createFakePlayer(reaction) {
 
 const erroring = (player) =>
   player.emit('statusChange', { status: 'error', error: { message: 'HTTP 404' } })
-const frozen = (player) => {
+// Plays, but the reported position never moves: on the totems this is what a
+// perfectly good live stream looks like.
+const playingStill = (player) => {
   player.emit('statusChange', { status: 'readyToPlay' })
   player.emit('playingChange', { isPlaying: true })
   player.emit('timeUpdate', { currentTime: 12 })
+}
+// Reaches "playing" once, then sits in buffering for good.
+const bufferingForever = (player) => {
+  player.emit('statusChange', { status: 'readyToPlay' })
+  player.emit('playingChange', { isPlaying: true })
+  player.emit('playingChange', { isPlaying: false })
+}
+// Never gets a first frame.
+const neverPlays = (player) => {
+  player.emit('statusChange', { status: 'loading' })
 }
 
 function createHarness(
@@ -144,7 +156,7 @@ function createHarness(
     },
     onPhase: (phase) => phases.push(phase),
     ...(healthyPlayingMs === undefined ? {} : { healthyPlayingMs }),
-    watchdogOptions: { startupGraceMs: 5000, stallThresholdMs: 3000 },
+    watchdogOptions: { startupGraceMs: 5000, stallMs: 3000 },
   })
   return {
     scheduler,
@@ -193,40 +205,38 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
 }
 
 {
-  // A stream that says "playing" but never advances is not healthy: the
-  // failure streak is never reset and the screen is eventually given back.
-  const { scheduler, session, phases, giveUps } = createHarness(frozen)
+  // Playing continuously is healthy, full stop: the reported position may sit
+  // still for half an hour and nothing stalls, no streak starts, nothing is
+  // given up.
+  const { scheduler, session, phases, giveUps } = createHarness(playingStill)
+  logs.length = 0
   session.start(streamUrl)
   assert.deepEqual(phases, [LivePhase.CONNECTING, LivePhase.PLAYING])
-  scheduler.advance(GIVE_UP_MS + 60_000)
-  assert.equal(giveUps(), 1, 'Frozen playback gives up like an error would.')
+  scheduler.advance(30 * 60_000)
+  assert.equal(giveUps(), 0)
+  assert.deepEqual(phases, [LivePhase.CONNECTING, LivePhase.PLAYING], 'Never left PLAYING.')
+  assert.equal(logs.filter((line) => line.includes('failure streak started')).length, 0)
+  assert.equal(logs.filter((line) => line.startsWith('Live stream healthy')).length, 1)
 }
 
 {
-  // Real progress heals the streak: a drop after a healthy stretch starts a
-  // fresh ten minutes.
-  let opens = 0
-  const flaky = (player) => {
-    opens += 1
-    if (opens % 2 === 1) {
-      erroring(player)
-      return
-    }
-    player.emit('statusChange', { status: 'readyToPlay' })
-    player.emit('playingChange', { isPlaying: true })
-    for (let second = 0; second <= 20; second += 1) {
-      player.emit('timeUpdate', { currentTime: 100 + second })
-    }
-  }
-  const { scheduler, player, session, giveUps } = createHarness(flaky)
+  // A stream stuck in buffering is stalled; reopening never helps, so it is
+  // eventually given up on, exactly once.
+  const { scheduler, session, giveUps } = createHarness(bufferingForever)
   session.start(streamUrl)
-  scheduler.advance(GIVE_UP_MS * 3)
-  assert.equal(giveUps(), 0, 'A stream that keeps coming back healthy is never given up on.')
-  // The healthy stream then freezes: the streak starts now, not at the first
-  // error hours ago.
-  player.emit('statusChange', { status: 'error', error: { message: 'drop' } })
-  scheduler.advance(GIVE_UP_MS - 1000)
-  assert.ok(giveUps() <= 1)
+  scheduler.advance(GIVE_UP_MS + 60_000)
+  assert.equal(giveUps(), 1, 'Buffering forever gives up like an error would.')
+  scheduler.advance(60 * 60_000)
+  assert.equal(giveUps(), 1)
+}
+
+{
+  // A stream that never shows a first frame trips the startup grace and is
+  // eventually given up on.
+  const { scheduler, session, giveUps } = createHarness(neverPlays)
+  session.start(streamUrl)
+  scheduler.advance(GIVE_UP_MS + 60_000)
+  assert.equal(giveUps(), 1)
 }
 
 {
@@ -235,7 +245,7 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
   session.start(streamUrl)
   scheduler.advance(1000)
   assert.equal(scheduler.activeCount(), 1, 'A retry is pending.')
-  assert.equal(player.listenerCount(), 4)
+  assert.equal(player.listenerCount(), 3)
   session.stop()
   assert.equal(scheduler.activeCount(), 0)
   assert.equal(player.listenerCount(), 0)
@@ -252,7 +262,7 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
   let previousOpens = 0
   for (let cycle = 0; cycle < 300; cycle += 1) {
     scheduler.advance(30_000)
-    assert.equal(player.listenerCount(), 4, `Listener count must stay constant (cycle ${cycle}).`)
+    assert.equal(player.listenerCount(), 3, `Listener count must stay constant (cycle ${cycle}).`)
     const opens = replaces(player).length
     assert.ok(opens > previousOpens, 'Offline, the stream keeps being retried.')
     previousOpens = opens
@@ -285,7 +295,7 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
       giveUps += 1
       return giveUps === 1 ? Promise.reject(new Error('offline write')) : Promise.resolve()
     },
-    watchdogOptions: { startupGraceMs: 5000, stallThresholdMs: 3000 },
+    watchdogOptions: { startupGraceMs: 5000, stallMs: 3000 },
   })
   session.start(streamUrl)
   scheduler.advance(GIVE_UP_MS + 60_000)
@@ -300,7 +310,7 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
 {
   // The dashboard clears the broadcast: audio stops at once, and an empty
   // configuration is given up on after the same limit, only when connected.
-  const { scheduler, player, session, phases, giveUps, setConnected } = createHarness(frozen)
+  const { scheduler, player, session, phases, giveUps, setConnected } = createHarness(playingStill)
   session.start(streamUrl)
   session.start(null)
   assert.deepEqual(
@@ -309,7 +319,7 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
     'Clearing the live node must pause the player and unload the source.'
   )
   assert.equal(phases.at(-1), LivePhase.NONE)
-  assert.equal(player.listenerCount(), 4, 'Listeners are attached once, not per start.')
+  assert.equal(player.listenerCount(), 3, 'Listeners are attached once, not per start.')
 
   setConnected(false)
   scheduler.advance(GIVE_UP_MS + LIVE_DEFERRED_RECHECK_MS)
@@ -334,7 +344,6 @@ const replaces = (player) => player.calls.filter(([call]) => call === 'replace')
   session.stop()
   session.handleStatus({ status: 'error', error: { message: 'after stop' } })
   session.handlePlaying({ isPlaying: true })
-  session.handleProgress({ currentTime: 3 })
   assert.equal(scheduler.activeCount(), 0)
   assert.equal(session.getPhase(), null)
   assert.equal(player.calls.filter(([call]) => call === 'play').length, 0)
@@ -434,9 +443,9 @@ function createControlledStream(scheduler) {
 }
 
 {
-  // A player that never reports its position (no timeUpdate at all) is
-  // trusted on isPlaying alone: playing for the window counts as healthy, so
-  // a stream that keeps coming back is never given up on.
+  // The playing state alone decides health: a stream that keeps coming back
+  // to "playing" after each drop is never given up on, whatever the reported
+  // position does (here: nothing at all).
   const playingSilently = (player) => {
     player.emit('statusChange', { status: 'readyToPlay' })
     player.emit('playingChange', { isPlaying: true })
