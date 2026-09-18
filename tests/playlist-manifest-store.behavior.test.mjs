@@ -116,10 +116,13 @@ const {
   MAX_MEDIA_URL_LENGTH,
   MAX_PLAYLIST_MANIFEST_BYTES,
   MAX_PLAYLIST_ITEMS,
+  PLAYLIST_MANIFEST_VERSION,
   PlaylistManifestStore,
   createPlaylistBootstrapCoordinator,
   sanitizePlaylist,
 } = await loadModule()
+
+assert.equal(PLAYLIST_MANIFEST_VERSION, 2, 'Item shape changed: v1 manifests are migrated on load.')
 
 const preservedUrl = 'https://cdn.example/video.MP4?token=stable#chapter'
 assert.deepEqual(
@@ -132,10 +135,35 @@ assert.deepEqual(
     )
   ),
   [
-    { videoUrl: preservedUrl },
-    { videoUrl: 'http://cdn.example/image.jpg' },
+    { videoUrl: preservedUrl, duration: 0 },
+    { videoUrl: 'http://cdn.example/image.jpg', duration: 0 },
   ],
   'Validation must preserve cache URL identity while stripping unexpected fields.'
+)
+
+// The synchronized schedule needs each video's length and the dashboard's id,
+// so both survive validation; anything unusable degrades to "unknown" rather
+// than discarding an otherwise playable item.
+assert.deepEqual(
+  JSON.parse(
+    JSON.stringify(
+      sanitizePlaylist({
+        a: { videoUrl: 'https://cdn.example/a.mp4', videoId: 'vid-a', duration: 12.5 },
+        b: { videoUrl: 'https://cdn.example/b.mp4', videoId: '', duration: -3 },
+        c: { videoUrl: 'https://cdn.example/c.mp4', videoId: 42, duration: '30' },
+        d: { videoUrl: 'https://cdn.example/d.mp4', duration: Number.NaN },
+        e: { videoUrl: 'https://cdn.example/e.mp4', videoId: 'x'.repeat(257) },
+      })
+    )
+  ),
+  [
+    { videoUrl: 'https://cdn.example/a.mp4', videoId: 'vid-a', duration: 12.5 },
+    { videoUrl: 'https://cdn.example/b.mp4', duration: 0 },
+    { videoUrl: 'https://cdn.example/c.mp4', duration: 0 },
+    { videoUrl: 'https://cdn.example/d.mp4', duration: 0 },
+    { videoUrl: 'https://cdn.example/e.mp4', duration: 0 },
+  ],
+  'videoId is optional and duration falls back to unknown, never to a rejection.'
 )
 assert.deepEqual(JSON.parse(JSON.stringify(sanitizePlaylist(null))), [])
 assert.deepEqual(JSON.parse(JSON.stringify(sanitizePlaylist({}))), [])
@@ -172,8 +200,8 @@ assert.deepEqual(
     )
   ),
   [
-    { videoUrl: 'https://cdn.example/good-1.mp4' },
-    { videoUrl: 'https://cdn.example/good-2.jpg' },
+    { videoUrl: 'https://cdn.example/good-1.mp4', duration: 0 },
+    { videoUrl: 'https://cdn.example/good-2.jpg', duration: 0 },
   ],
   'One broken entry must not freeze the screen on the previous playlist.'
 )
@@ -189,8 +217,8 @@ assert.deepEqual(
     )
   ),
   [
-    { videoUrl: 'https://cdn.example/before-hole.mp4' },
-    { videoUrl: 'https://cdn.example/after-hole.mp4' },
+    { videoUrl: 'https://cdn.example/before-hole.mp4', duration: 0 },
+    { videoUrl: 'https://cdn.example/after-hole.mp4', duration: 0 },
   ],
   'A hole left by a dashboard delete must not cost the surviving items.'
 )
@@ -236,10 +264,10 @@ const backupPath = `${manifestPath}.backup`
     digest: async () => 'hash',
     documentDirectory: '/documents/',
   })
-  const playlist = [{ videoUrl: preservedUrl }]
+  const playlist = [{ videoUrl: preservedUrl, videoId: 'stable', duration: 7 }]
   assert.equal(await store.save('device|playlist', playlist), true)
   assert.deepEqual(JSON.parse(fileSystem.files.get(manifestPath)), {
-    version: 1,
+    version: 2,
     items: playlist,
   })
   assert.equal(fileSystem.files.has(partPath), false)
@@ -261,10 +289,10 @@ const backupPath = `${manifestPath}.backup`
 }
 
 {
-  const backupItems = [{ videoUrl: 'https://cdn.example/backup.mp4' }]
+  const backupItems = [{ videoUrl: 'https://cdn.example/backup.mp4', duration: 0 }]
   const fileSystem = new FakeFileSystem({
     [manifestPath]: '{corrupt',
-    [backupPath]: JSON.stringify({ version: 1, items: backupItems }),
+    [backupPath]: JSON.stringify({ version: 2, items: backupItems }),
     [partPath]: '{orphan',
   })
   const store = new PlaylistManifestStore({
@@ -279,15 +307,15 @@ const backupPath = `${manifestPath}.backup`
   )
   assert.equal(fileSystem.files.has(partPath), false)
   assert.deepEqual(JSON.parse(fileSystem.files.get(manifestPath)), {
-    version: 1,
+    version: 2,
     items: backupItems,
   })
 }
 
 {
   const previousPayload = JSON.stringify({
-    version: 1,
-    items: [{ videoUrl: 'https://cdn.example/previous.mp4' }],
+    version: 2,
+    items: [{ videoUrl: 'https://cdn.example/previous.mp4', duration: 0 }],
   })
   const fileSystem = new FakeFileSystem({ [manifestPath]: previousPayload })
   fileSystem.failMoveFrom = partPath
@@ -309,8 +337,8 @@ const backupPath = `${manifestPath}.backup`
 
 {
   const previousPayload = JSON.stringify({
-    version: 1,
-    items: [{ videoUrl: 'https://cdn.example/previous.mp4' }],
+    version: 2,
+    items: [{ videoUrl: 'https://cdn.example/previous.mp4', duration: 0 }],
   })
   const fileSystem = new FakeFileSystem({ [manifestPath]: previousPayload })
   fileSystem.writeTransform = () => '{truncated'
@@ -336,10 +364,30 @@ const backupPath = `${manifestPath}.backup`
 }
 
 {
+  // A v1 manifest (written before duration/videoId existed) is migrated, not
+  // discarded: an updated fleet must keep playing from its cache.
+  const store = new PlaylistManifestStore({
+    fileSystem: new FakeFileSystem({
+      [manifestPath]: JSON.stringify({ version: 1, items: [{ videoUrl: preservedUrl }] }),
+    }),
+    digest: async () => 'hash',
+    documentDirectory: '/documents/',
+  })
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(await store.load('device|playlist'))),
+    [{ videoUrl: preservedUrl, duration: 0 }],
+    'A v1 manifest must load with the new defaults, never leave the screen empty.'
+  )
+}
+
+{
+  // A manifest from an unknown (newer) build or with no version is discarded:
+  // its items may carry a shape this version cannot trust.
   const invalidPayloads = [
     '{broken',
-    JSON.stringify({ version: 2, items: [{ videoUrl: preservedUrl }] }),
-    JSON.stringify({ version: 1, items: [{ videoUrl: 'javascript:alert(1)' }] }),
+    JSON.stringify({ version: 3, items: [{ videoUrl: preservedUrl, duration: 0 }] }),
+    JSON.stringify({ items: [{ videoUrl: preservedUrl, duration: 0 }] }),
+    JSON.stringify({ version: 2, items: [{ videoUrl: 'javascript:alert(1)' }] }),
   ]
   for (const payload of invalidPayloads) {
     const store = new PlaylistManifestStore({
@@ -470,12 +518,12 @@ const backupPath = `${manifestPath}.backup`
     true
   )
   assert.deepEqual(JSON.parse(fileSystem.files.get(manifestPath)), {
-    version: 1,
-    items: [{ videoUrl: 'https://cdn.example/playable.mp4' }],
+    version: 2,
+    items: [{ videoUrl: 'https://cdn.example/playable.mp4', duration: 0 }],
   })
   assert.deepEqual(
     JSON.parse(JSON.stringify(await store.load('device|playlist'))),
-    [{ videoUrl: 'https://cdn.example/playable.mp4' }]
+    [{ videoUrl: 'https://cdn.example/playable.mp4', duration: 0 }]
   )
 }
 
@@ -492,7 +540,7 @@ const backupPath = `${manifestPath}.backup`
   })
 
   assert.deepEqual(JSON.parse(JSON.stringify(remote)), [
-    { videoUrl: 'https://cdn.example/kept.mp4' },
+    { videoUrl: 'https://cdn.example/kept.mp4', duration: 0 },
   ])
   assert.equal(coordinator.applyRemote({ only: { videoUrl: 'nope' } }), null)
   assert.deepEqual(JSON.parse(JSON.stringify(applied)), [

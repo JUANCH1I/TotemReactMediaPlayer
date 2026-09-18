@@ -1,9 +1,15 @@
 import * as Crypto from 'expo-crypto'
 import * as FileSystem from 'expo-file-system/legacy'
 
-export const PLAYLIST_MANIFEST_VERSION = 1
+// Bumped whenever the item shape changes. Older versions listed here are
+// migrated on load by re-sanitizing their items (missing fields take their
+// defaults); anything else is discarded. A fleet updated in place must keep
+// playing from its cache, never fall back to the pairing screen.
+export const PLAYLIST_MANIFEST_VERSION = 2
+const MIGRATABLE_MANIFEST_VERSIONS = new Set([1, PLAYLIST_MANIFEST_VERSION])
 export const MAX_PLAYLIST_ITEMS = 100
 export const MAX_MEDIA_URL_LENGTH = 4096
+export const MAX_VIDEO_ID_LENGTH = 256
 export const MAX_PLAYLIST_MANIFEST_BYTES = 512 * 1024
 
 const MANIFEST_DIRECTORY_NAME = 'playlist-manifests/'
@@ -13,6 +19,25 @@ const REMOTE_MEDIA_URL_PATTERN = /^https?:\/\/[^\s]+$/
 // stale content until somebody fixed the dashboard. Dropping the bad entries keeps
 // the rest of the loop playing; a snapshot where nothing survives is still refused
 // so a fully corrupt read cannot blank a screen that has working content.
+function isUsableVideoId(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_VIDEO_ID_LENGTH
+  )
+}
+
+// Seconds, as the dashboard stores them. Zero means "unknown": the synchronized
+// schedule treats such a video as uncomputable, so a bad value degrades to
+// sequential playback instead of misplacing every screen in the group.
+function sanitizeDuration(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return 0
+  }
+
+  return value
+}
+
 export function sanitizePlaylist(value) {
   if (value === null) return []
   if (typeof value !== 'object') return null
@@ -42,7 +67,11 @@ export function sanitizePlaylist(value) {
       continue
     }
 
-    items.push({ videoUrl })
+    items.push({
+      videoUrl,
+      ...(isUsableVideoId(item.videoId) ? { videoId: item.videoId } : {}),
+      duration: sanitizeDuration(item.duration),
+    })
   }
 
   // An empty input is an authoritative "no content" and must still clear the
@@ -252,7 +281,7 @@ export class PlaylistManifestStore {
       if (
         !parsed ||
         typeof parsed !== 'object' ||
-        parsed.version !== PLAYLIST_MANIFEST_VERSION ||
+        !MIGRATABLE_MANIFEST_VERSIONS.has(parsed.version) ||
         !Array.isArray(parsed.items)
       ) {
         return null
