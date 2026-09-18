@@ -14,9 +14,12 @@ import Kiosk from '../modules/kiosk'
 //
 // It exists because the system settings are drawn in the television's own
 // orientation: on a totem mounted vertically they appear sideways, keyboard
-// included. Everything here is drawn by the app, so it rotates with the rest
-// of the content. That is only possible because the app is the device owner;
-// Android does not let an ordinary app join a network since version 10.
+// included. Everything here is drawn by the app, so it rotates and re-flows
+// with the rest of the content, and it is lit like the player rather than like
+// a settings panel.
+//
+// The Wi-Fi parts only work when the app is the device owner: Android has not
+// let an ordinary app join a network since version 10.
 
 const PALETTE = {
   base: '#24191C',
@@ -37,9 +40,26 @@ const KEY_ROWS = [
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
-// focusFirst matters more than it looks: a television screen that opens with
-// nothing focused swallows every press of the remote.
-const Key = ({ label, onPress, wide = false, tone = 'normal', size, focusFirst = false }) => (
+// Without a code the screen is one press away from any guest with the remote.
+// The default is the last four digits of the device code, which a technician
+// can read off the pairing screen, and the dashboard can set another one per
+// totem. Digits only: the device code is hexadecimal and a remote has no
+// letters, so its letters could never be typed.
+const defaultPin = (deviceId) =>
+  String(deviceId ?? '')
+    .replace(/\D/g, '')
+    .slice(-4)
+    .padStart(4, '0')
+
+const Key = ({
+  label,
+  onPress,
+  size,
+  wide = false,
+  block = false,
+  tone = 'normal',
+  focusFirst = false,
+}) => (
   <Pressable
     accessibilityRole='button'
     accessibilityLabel={label}
@@ -48,9 +68,9 @@ const Key = ({ label, onPress, wide = false, tone = 'normal', size, focusFirst =
     style={({ focused, pressed }) => [
       styles.key,
       {
-        minWidth: wide ? size * 3.4 : size * 1.6,
-        paddingVertical: size * 0.32,
-        paddingHorizontal: size * 0.4,
+        minWidth: block ? '100%' : wide ? size * 3.6 : size * 1.7,
+        paddingVertical: size * (block ? 0.55 : 0.34),
+        paddingHorizontal: size * 0.5,
         backgroundColor:
           focused || pressed
             ? tone === 'danger'
@@ -76,17 +96,6 @@ const Key = ({ label, onPress, wide = false, tone = 'normal', size, focusFirst =
   </Pressable>
 )
 
-// Without a code the screen is one press away from any guest with the remote.
-// The default is the last four digits of the device code, which a technician
-// can read off the pairing screen, and the dashboard can set another one per
-// totem. Digits only: the device code is hexadecimal, and a keypad on a remote
-// has no letters, so the letters in it could never be typed.
-const defaultPin = (deviceId) =>
-  String(deviceId ?? '')
-    .replace(/\D/g, '')
-    .slice(-4)
-    .padStart(4, '0')
-
 /**
  * @param {{
  *   deviceId?: string | null,
@@ -102,17 +111,23 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
   const frameWidth = isQuarterTurn ? height : width
   const frameHeight = isQuarterTurn ? width : height
   const shortSide = Math.min(frameWidth, frameHeight)
+  // A vertical totem has room to stack and no room to spread.
+  const stacked = frameWidth < frameHeight
 
   const type = useMemo(
     () => ({
-      title: clamp(Math.round(shortSide * 0.06), 20, 42),
-      body: clamp(Math.round(shortSide * 0.035), 14, 24),
-      key: clamp(Math.round(shortSide * 0.03), 12, 20),
+      title: clamp(Math.round(shortSide * 0.062), 20, 44),
+      body: clamp(Math.round(shortSide * 0.034), 14, 26),
+      key: clamp(Math.round(shortSide * 0.028), 12, 22),
     }),
     [shortSide]
   )
 
-  const qrSide = clamp(Math.round(shortSide * 0.32), 140, 300)
+  const padding = Math.round(shortSide * 0.08)
+  const columnWidth = Math.min(frameWidth - padding * 2, 760)
+  const qrSide = clamp(Math.round(shortSide * (stacked ? 0.3 : 0.28)), 130, 280)
+  const glowSize = Math.round(Math.max(frameWidth, frameHeight) * 1.35)
+
   const [step, setStep] = useState('pin')
   const [typedPin, setTypedPin] = useState('')
   const [networks, setNetworks] = useState([])
@@ -124,26 +139,7 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
   const [locked, setLocked] = useState(false)
   const [setupSession, setSetupSession] = useState(null)
 
-  useEffect(() => {
-    try {
-      setLocked(Kiosk.isDeviceOwner())
-    } catch (error) {
-      setLocked(false)
-    }
-  }, [])
-
-  // The way out of a locked totem, with nothing but the remote. Wireless
-  // debugging turns itself off on every reboot, so a technician standing in
-  // front of the screen cannot count on a cable or a command from outside.
-  const release = useCallback(() => {
-    try {
-      Kiosk.releaseDevice()
-      setLocked(false)
-      setStatus('Pantalla liberada. El televisor vuelve a su menú normal.')
-    } catch (error) {
-      setStatus(`No se pudo liberar: ${String(error?.message ?? error)}`)
-    }
-  }, [])
+  const expectedPin = (pin ?? defaultPin(deviceId)).toString()
 
   const readCurrentNetwork = useCallback(() => {
     try {
@@ -154,6 +150,14 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
   }, [])
 
   useEffect(readCurrentNetwork, [readCurrentNetwork])
+
+  useEffect(() => {
+    try {
+      setLocked(Kiosk.isDeviceOwner())
+    } catch (error) {
+      setLocked(false)
+    }
+  }, [])
 
   const scan = useCallback(() => {
     setStatus('Buscando redes…')
@@ -196,7 +200,7 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
   }, [password, readCurrentNetwork, selected])
 
   // Configuring from a phone beats configuring with a remote: a real keyboard,
-  // and a page that is readable however the totem is mounted.
+  // and a page that reads the same however the totem is mounted.
   const startPhoneSetup = useCallback(() => {
     setStatus('Levantando la red del tótem…')
 
@@ -225,9 +229,18 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
     setStep('overview')
   }, [readCurrentNetwork])
 
-  const appendKey = (character) => setPassword((value) => value + character)
-
-  const expectedPin = (pin ?? defaultPin(deviceId)).toString()
+  // The way out of a locked totem, with nothing but the remote. Wireless
+  // debugging turns itself off on every reboot, so a technician standing in
+  // front of the screen cannot count on a cable or a command from outside.
+  const release = useCallback(() => {
+    try {
+      Kiosk.releaseDevice()
+      setLocked(false)
+      setStatus('Pantalla liberada. El televisor vuelve a su menú normal.')
+    } catch (error) {
+      setStatus(`No se pudo liberar: ${String(error?.message ?? error)}`)
+    }
+  }, [])
 
   const appendPin = (digit) => {
     const next = typedPin + digit
@@ -248,25 +261,38 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
     setStatus('Código incorrecto.')
   }
 
-  const renderPin = () => (
-    <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>Código de servicio</Text>
+  const Title = ({ children }) => (
+    <Text style={[styles.title, { fontSize: type.title }]}>{children}</Text>
+  )
+
+  const Line = ({ label, value }) => (
+    <View style={{ marginTop: type.body * 0.8, alignItems: 'center' }}>
+      <Text style={[styles.label, { fontSize: type.body * 0.8 }]}>{label}</Text>
+      <Text style={[styles.value, { fontSize: type.body }]}>{value}</Text>
+    </View>
+  )
+
+  const Status = () =>
+    status ? (
       <Text
         style={[
-          styles.password,
-          { fontSize: type.title, marginTop: type.body * 0.6, letterSpacing: 10 },
+          styles.status,
+          { fontSize: type.body, marginTop: type.body, maxWidth: columnWidth },
         ]}
       >
-        {'•'.repeat(typedPin.length) || '—'}
+        {status}
       </Text>
+    ) : null
 
-      {status ? (
-        <Text style={[styles.status, { fontSize: type.body, marginTop: type.body * 0.5 }]}>
-          {status}
-        </Text>
-      ) : null}
+  const renderPin = () => (
+    <>
+      <Title>Código de servicio</Title>
+      <Text style={[styles.pinDots, { fontSize: type.title, marginTop: type.body * 0.4 }]}>
+        {'•'.repeat(typedPin.length) || '––––'}
+      </Text>
+      <Status />
 
-      <View style={[styles.row, { marginTop: type.body }]}>
+      <View style={[styles.keys, { marginTop: type.body, maxWidth: columnWidth }]}>
         {[...'0123456789'].map((digit, index) => (
           <Key
             key={digit}
@@ -278,50 +304,43 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
         ))}
       </View>
 
-      <View style={[styles.row, { marginTop: type.body * 0.6 }]}>
-        <Key label='Salir' onPress={onClose} wide tone='danger' size={type.body} />
+      <View style={{ marginTop: type.body, width: columnWidth * 0.6 }}>
+        <Key label='Salir' onPress={onClose} block tone='danger' size={type.body} />
       </View>
-    </View>
+    </>
   )
 
   const renderOverview = () => (
-    <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>Mantenimiento</Text>
+    <>
+      <Title>Mantenimiento</Title>
+      <Line label='Equipo' value={deviceId ?? '—'} />
+      <Line label='Red conectada' value={currentNetwork ?? 'sin conexión'} />
+      <Status />
 
-      <View style={{ marginTop: type.body }}>
-        <Text style={[styles.label, { fontSize: type.body * 0.8 }]}>Equipo</Text>
-        <Text style={[styles.value, { fontSize: type.body }]}>{deviceId ?? '—'}</Text>
-
-        <Text style={[styles.label, { fontSize: type.body * 0.8, marginTop: type.body * 0.7 }]}>
-          Red conectada
-        </Text>
-        <Text style={[styles.value, { fontSize: type.body }]}>
-          {currentNetwork ?? 'sin conexión'}
-        </Text>
-      </View>
-
-      {status ? (
-        <Text style={[styles.status, { fontSize: type.body, marginTop: type.body }]}>
-          {status}
-        </Text>
-      ) : null}
-
-      <View style={[styles.row, { marginTop: type.body * 1.2 }]}>
-        <Key label='Configurar desde el celular' onPress={startPhoneSetup} wide size={type.body} focusFirst />
-        <Key label='Configurar acá' onPress={scan} wide size={type.body} />
+      <View style={{ marginTop: type.body * 1.4, width: columnWidth * 0.75 }}>
+        <Key
+          label='Configurar desde el celular'
+          onPress={startPhoneSetup}
+          block
+          size={type.body}
+          focusFirst
+        />
+        <Key label='Configurar aquí' onPress={scan} block size={type.body} />
         {locked ? (
-          <Key label='Liberar pantalla' onPress={release} wide size={type.body} />
+          <Key label='Liberar pantalla' onPress={release} block size={type.body} />
         ) : null}
-        <Key label='Salir' onPress={onClose} wide tone='danger' size={type.body} />
+        <Key label='Salir' onPress={onClose} block tone='danger' size={type.body} />
       </View>
-    </View>
+    </>
   )
 
   const renderNetworks = () => (
-    <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>Elige una red</Text>
+    <>
+      <Title>Elige una red</Title>
 
-      <ScrollView style={{ maxHeight: frameHeight * 0.55, marginTop: type.body }}>
+      <ScrollView
+        style={{ maxHeight: frameHeight * 0.5, marginTop: type.body, width: columnWidth }}
+      >
         {networks.map((network, index) => (
           <Pressable
             key={`${network.ssid}-${index}`}
@@ -335,9 +354,9 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
             style={({ focused }) => [
               styles.networkRow,
               {
-                paddingVertical: type.body * 0.45,
-                paddingHorizontal: type.body * 0.6,
-                backgroundColor: focused ? PALETTE.honey : 'transparent',
+                paddingVertical: type.body * 0.5,
+                paddingHorizontal: type.body * 0.8,
+                backgroundColor: focused ? PALETTE.honey : PALETTE.deep,
               },
             ]}
           >
@@ -356,114 +375,141 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
         ))}
       </ScrollView>
 
-      <View style={[styles.row, { marginTop: type.body }]}>
-        <Key label='Volver' onPress={() => setStep('overview')} wide size={type.body} focusFirst={networks.length === 0} />
+      <View style={{ marginTop: type.body, width: columnWidth * 0.6 }}>
+        <Key
+          label='Volver'
+          onPress={() => setStep('overview')}
+          block
+          size={type.body}
+          focusFirst={networks.length === 0}
+        />
       </View>
+    </>
+  )
+
+  const renderPassword = () => (
+    <>
+      <Title>{selected?.ssid}</Title>
+      <Text style={[styles.label, { fontSize: type.body * 0.8, marginTop: type.body * 0.4 }]}>
+        Clave
+      </Text>
+      <Text style={[styles.pinDots, { fontSize: type.body * 1.3 }]}>
+        {password.length ? password : '––––'}
+      </Text>
+
+      <View style={{ marginTop: type.key, maxWidth: columnWidth }}>
+        {KEY_ROWS.map((row, rowIndex) => (
+          <View key={row} style={styles.keys}>
+            {[...row].map((character) => {
+              const label = upperCase ? character.toUpperCase() : character
+
+              return (
+                <Key
+                  key={character}
+                  label={label}
+                  size={type.key}
+                  focusFirst={rowIndex === 0 && character === 'a'}
+                  onPress={() => setPassword((value) => value + label)}
+                />
+              )
+            })}
+          </View>
+        ))}
+
+        <View style={[styles.keys, { marginTop: type.key }]}>
+          <Key
+            label={upperCase ? 'abc' : 'ABC'}
+            size={type.key}
+            wide
+            onPress={() => setUpperCase((value) => !value)}
+          />
+          <Key
+            label='Borrar'
+            size={type.key}
+            wide
+            onPress={() => setPassword((value) => value.slice(0, -1))}
+          />
+          <Key label='Conectar' size={type.key} wide onPress={connect} />
+          <Key
+            label='Cancelar'
+            size={type.key}
+            wide
+            tone='danger'
+            onPress={() => setStep('networks')}
+          />
+        </View>
+      </View>
+    </>
+  )
+
+  const renderConfirm = () => (
+    <>
+      <Title>{selected?.ssid}</Title>
+      <Text
+        style={[
+          styles.value,
+          { fontSize: type.body, marginTop: type.body * 0.6, maxWidth: columnWidth },
+        ]}
+      >
+        Esta red es abierta, no necesita clave.
+      </Text>
+
+      <View style={{ marginTop: type.body, width: columnWidth * 0.6 }}>
+        <Key label='Conectar' size={type.body} block focusFirst onPress={connect} />
+        <Key
+          label='Cancelar'
+          size={type.body}
+          block
+          tone='danger'
+          onPress={() => setStep('networks')}
+        />
+      </View>
+    </>
+  )
+
+  const QrCard = ({ image, label, code }) => (
+    <View style={[styles.qrCard, { padding: Math.round(qrSide * 0.07) }]}>
+      <Image source={{ uri: image }} style={{ width: qrSide, height: qrSide }} />
+      <Text style={[styles.qrLabel, { fontSize: type.body * 0.75 }]}>{label}</Text>
+      <Text style={[styles.qrCode, { fontSize: type.body * 0.78 }]}>{code}</Text>
     </View>
   )
 
   const renderPhoneSetup = () => (
-    <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>Configurar desde el celular</Text>
+    <>
+      <Title>Configurar desde el celular</Title>
       <Text
         style={[
           styles.value,
-          { fontSize: type.body, marginTop: type.body * 0.5, maxWidth: frameWidth * 0.8 },
+          { fontSize: type.body, marginTop: type.body * 0.6, maxWidth: columnWidth },
         ]}
       >
-        1. Escanea el primer código para conectarte a la red del tótem.
-        {'\n'}2. Escanea el segundo para abrir la página de configuración.
+        Escanea el primero para entrar a la red del tótem, y el segundo para abrir la
+        página.
       </Text>
 
-      <View style={[styles.row, { marginTop: type.body }]}>
+      <View
+        style={[
+          styles.qrRow,
+          { marginTop: type.body, flexDirection: stacked ? 'column' : 'row' },
+        ]}
+      >
         {setupSession?.joinQr ? (
-          <View style={[styles.qrCard, { marginRight: type.body }]}>
-            <Image
-              source={{ uri: setupSession.joinQr }}
-              style={{ width: qrSide, height: qrSide }}
-            />
-            <Text style={[styles.qrLabel, { fontSize: type.body * 0.75 }]}>
-              Red {setupSession.ssid}
-            </Text>
-            <Text style={[styles.qrCode, { fontSize: type.body * 0.75 }]}>
-              {setupSession.password}
-            </Text>
-          </View>
+          <QrCard
+            image={setupSession.joinQr}
+            label={`Red ${setupSession.ssid}`}
+            code={setupSession.password}
+          />
         ) : null}
-
         {setupSession?.pageQr ? (
-          <View style={styles.qrCard}>
-            <Image
-              source={{ uri: setupSession.pageQr }}
-              style={{ width: qrSide, height: qrSide }}
-            />
-            <Text style={[styles.qrLabel, { fontSize: type.body * 0.75 }]}>Página</Text>
-            <Text style={[styles.qrCode, { fontSize: type.body * 0.75 }]}>
-              {setupSession.url}
-            </Text>
-          </View>
+          <QrCard image={setupSession.pageQr} label='Página' code={setupSession.url} />
         ) : null}
       </View>
 
-      <View style={[styles.row, { marginTop: type.body }]}>
-        <Key label='Terminar' onPress={stopPhoneSetup} wide size={type.body} focusFirst />
+      <View style={{ marginTop: type.body, width: columnWidth * 0.6 }}>
+        <Key label='Terminar' onPress={stopPhoneSetup} block size={type.body} focusFirst />
       </View>
-    </View>
-  )
-
-  const renderPassword = () => (
-    <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>{selected?.ssid}</Text>
-      <Text style={[styles.label, { fontSize: type.body * 0.8, marginTop: type.body * 0.4 }]}>
-        Clave
-      </Text>
-      <Text style={[styles.password, { fontSize: type.body * 1.2 }]}>
-        {password.length ? password : '—'}
-      </Text>
-
-      {KEY_ROWS.map((row, rowIndex) => (
-        <View key={row} style={[styles.row, { marginTop: type.key * 0.4 }]}>
-          {[...row].map((character) => {
-            const label = upperCase ? character.toUpperCase() : character
-
-            return (
-              <Key
-                key={character}
-                label={label}
-                size={type.key}
-                focusFirst={rowIndex === 0 && character === 'a'}
-                onPress={() => appendKey(label)}
-              />
-            )
-          })}
-        </View>
-      ))}
-
-      <View style={[styles.row, { marginTop: type.key * 0.8 }]}>
-        <Key
-          label={upperCase ? 'abc' : 'ABC'}
-          size={type.key}
-          wide
-          onPress={() => setUpperCase((value) => !value)}
-        />
-        <Key label='Borrar' size={type.key} wide onPress={() => setPassword((v) => v.slice(0, -1))} />
-        <Key label='Conectar' size={type.key} wide onPress={connect} />
-        <Key label='Cancelar' size={type.key} wide tone='danger' onPress={() => setStep('networks')} />
-      </View>
-    </View>
-  )
-
-  const renderConfirm = () => (
-    <View style={styles.block}>
-      <Text style={[styles.title, { fontSize: type.title }]}>{selected?.ssid}</Text>
-      <Text style={[styles.value, { fontSize: type.body, marginTop: type.body * 0.6 }]}>
-        Esta red es abierta, no necesita clave.
-      </Text>
-      <View style={[styles.row, { marginTop: type.body }]}>
-        <Key label='Conectar' size={type.body} wide focusFirst onPress={connect} />
-        <Key label='Cancelar' size={type.body} wide tone='danger' onPress={() => setStep('networks')} />
-      </View>
-    </View>
+    </>
   )
 
   return (
@@ -473,19 +519,36 @@ const MaintenanceScreen = ({ deviceId = null, pin = null, rotation = 0, onClose 
         {
           width: frameWidth,
           height: frameHeight,
+          padding,
           transform: [{ rotate: `${angle}deg` }],
           top: (height - frameHeight) / 2,
           left: (width - frameWidth) / 2,
-          padding: Math.round(shortSide * 0.06),
         },
       ]}
     >
-      {step === 'pin' ? renderPin() : null}
-      {step === 'overview' ? renderOverview() : null}
-      {step === 'networks' ? renderNetworks() : null}
-      {step === 'phone' ? renderPhoneSetup() : null}
-      {step === 'password' ? renderPassword() : null}
-      {step === 'confirm' ? renderConfirm() : null}
+      <Image
+        pointerEvents='none'
+        source={require('../assets/images/glow.png')}
+        style={[
+          styles.glow,
+          {
+            width: glowSize,
+            height: glowSize,
+            marginLeft: -glowSize / 2,
+            marginTop: -glowSize / 2,
+            tintColor: PALETTE.honey,
+          },
+        ]}
+      />
+
+      <View style={styles.column}>
+        {step === 'pin' ? renderPin() : null}
+        {step === 'overview' ? renderOverview() : null}
+        {step === 'networks' ? renderNetworks() : null}
+        {step === 'password' ? renderPassword() : null}
+        {step === 'confirm' ? renderConfirm() : null}
+        {step === 'phone' ? renderPhoneSetup() : null}
+      </View>
     </View>
   )
 }
@@ -494,45 +557,73 @@ const styles = StyleSheet.create({
   screen: {
     position: 'absolute',
     backgroundColor: PALETTE.base,
+    alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  block: {
-    alignItems: 'flex-start',
+  glow: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    opacity: 0.14,
   },
-  row: {
+  column: {
+    alignItems: 'center',
+  },
+  keys: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     color: PALETTE.cream,
     fontFamily: 'Nunito-Bold',
+    textAlign: 'center',
   },
   label: {
     color: PALETTE.muted,
     fontFamily: 'Nunito-Regular',
+    textAlign: 'center',
   },
   value: {
     color: PALETTE.cream,
     fontFamily: 'Nunito-Regular',
+    textAlign: 'center',
   },
-  password: {
+  pinDots: {
     color: PALETTE.honey,
     fontFamily: 'Nunito-Bold',
-    letterSpacing: 2,
+    letterSpacing: 8,
+    textAlign: 'center',
   },
   status: {
     color: PALETTE.honey,
     fontFamily: 'Nunito-Regular',
+    textAlign: 'center',
   },
   networkRow: {
-    borderRadius: 6,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  key: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    margin: 5,
+  },
+  keyLabel: {
+    fontFamily: 'Nunito-Bold',
+    textAlign: 'center',
+  },
+  qrRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   qrCard: {
     backgroundColor: PALETTE.cream,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 18,
     alignItems: 'center',
+    margin: 8,
   },
   qrLabel: {
     color: PALETTE.base,
@@ -542,15 +633,6 @@ const styles = StyleSheet.create({
   },
   qrCode: {
     color: PALETTE.base,
-    fontFamily: 'Nunito-Bold',
-  },
-  key: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    margin: 3,
-  },
-  keyLabel: {
     fontFamily: 'Nunito-Bold',
   },
 })
