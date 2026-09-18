@@ -140,22 +140,80 @@ assert.deepEqual(
 assert.deepEqual(JSON.parse(JSON.stringify(sanitizePlaylist(null))), [])
 assert.deepEqual(JSON.parse(JSON.stringify(sanitizePlaylist({}))), [])
 
-for (const malformed of [
-  'not-an-object',
+// A value that is not a playlist container carries no content to salvage.
+for (const notAPlaylist of ['not-an-object', 42, true, undefined, () => {}]) {
+  assert.equal(sanitizePlaylist(notAPlaylist), null)
+}
+
+// A snapshot that had entries but yielded nothing playable is still refused, so a
+// corrupt read cannot blank a screen that is currently showing working content.
+for (const fullyUnusable of [
   { item: null },
   { item: [] },
   { item: {} },
   { item: { videoUrl: '' } },
   { item: { videoUrl: 'file:///private/video.mp4' } },
   { item: { videoUrl: `https://cdn.example/${'x'.repeat(MAX_MEDIA_URL_LENGTH)}` } },
-  Object.fromEntries(
-    Array.from({ length: MAX_PLAYLIST_ITEMS + 1 }, (_, index) => [
-      String(index),
-      { videoUrl: `https://cdn.example/${index}.mp4` },
-    ])
-  ),
+  { first: { videoUrl: 'javascript:alert(1)' }, second: null, third: 7 },
 ]) {
-  assert.equal(sanitizePlaylist(malformed), null)
+  assert.equal(sanitizePlaylist(fullyUnusable), null)
+}
+
+assert.deepEqual(
+  JSON.parse(
+    JSON.stringify(
+      sanitizePlaylist({
+        first: { videoUrl: 'https://cdn.example/good-1.mp4' },
+        second: { videoUrl: 'not-a-remote-url' },
+        third: null,
+        fourth: { videoUrl: 'https://cdn.example/good-2.jpg' },
+        fifth: { title: 'missing url' },
+      })
+    )
+  ),
+  [
+    { videoUrl: 'https://cdn.example/good-1.mp4' },
+    { videoUrl: 'https://cdn.example/good-2.jpg' },
+  ],
+  'One broken entry must not freeze the screen on the previous playlist.'
+)
+
+assert.deepEqual(
+  JSON.parse(
+    JSON.stringify(
+      sanitizePlaylist([
+        { videoUrl: 'https://cdn.example/before-hole.mp4' },
+        null,
+        { videoUrl: 'https://cdn.example/after-hole.mp4' },
+      ])
+    )
+  ),
+  [
+    { videoUrl: 'https://cdn.example/before-hole.mp4' },
+    { videoUrl: 'https://cdn.example/after-hole.mp4' },
+  ],
+  'A hole left by a dashboard delete must not cost the surviving items.'
+)
+
+{
+  const oversized = sanitizePlaylist(
+    Object.fromEntries(
+      Array.from({ length: MAX_PLAYLIST_ITEMS + 5 }, (_, index) => [
+        String(index),
+        { videoUrl: `https://cdn.example/${index}.mp4` },
+      ])
+    )
+  )
+  assert.equal(
+    oversized.length,
+    MAX_PLAYLIST_ITEMS,
+    'An over-long playlist must be truncated to the cap, not rejected.'
+  )
+  assert.equal(oversized[0].videoUrl, 'https://cdn.example/0.mp4')
+  assert.equal(
+    oversized[MAX_PLAYLIST_ITEMS - 1].videoUrl,
+    `https://cdn.example/${MAX_PLAYLIST_ITEMS - 1}.mp4`
+  )
 }
 
 const manifestPath = '/documents/playlist-manifests/hash.json'
@@ -392,6 +450,54 @@ const backupPath = `${manifestPath}.backup`
   assert.equal(coordinator.applyLocal([{ videoUrl: preservedUrl }]), false)
   assert.equal(coordinator.applyRemote({ item: { videoUrl: preservedUrl } }), null)
   assert.equal(applied.length, 1, 'Stale local reads and late remote callbacks must be inert.')
+}
+
+{
+  // A mixed snapshot must reach disk already filtered, so a cold start replays the
+  // playable subset instead of failing its own staging validation.
+  const fileSystem = new FakeFileSystem()
+  const store = new PlaylistManifestStore({
+    fileSystem,
+    digest: async () => 'hash',
+    documentDirectory: '/documents/',
+  })
+
+  assert.equal(
+    await store.save('device|playlist', [
+      { videoUrl: 'https://cdn.example/playable.mp4' },
+      { videoUrl: 'ftp://cdn.example/rejected.mp4' },
+    ]),
+    true
+  )
+  assert.deepEqual(JSON.parse(fileSystem.files.get(manifestPath)), {
+    version: 1,
+    items: [{ videoUrl: 'https://cdn.example/playable.mp4' }],
+  })
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(await store.load('device|playlist'))),
+    [{ videoUrl: 'https://cdn.example/playable.mp4' }]
+  )
+}
+
+{
+  // The coordinator must hand the screen the playable subset rather than discard
+  // the whole update, while a wholly corrupt update stays inert.
+  const applied = []
+  const coordinator = createPlaylistBootstrapCoordinator((items) =>
+    applied.push(items.map((item) => item.videoUrl))
+  )
+  const remote = coordinator.applyRemote({
+    first: { videoUrl: 'https://cdn.example/kept.mp4' },
+    second: { videoUrl: 'nope' },
+  })
+
+  assert.deepEqual(JSON.parse(JSON.stringify(remote)), [
+    { videoUrl: 'https://cdn.example/kept.mp4' },
+  ])
+  assert.equal(coordinator.applyRemote({ only: { videoUrl: 'nope' } }), null)
+  assert.deepEqual(JSON.parse(JSON.stringify(applied)), [
+    ['https://cdn.example/kept.mp4'],
+  ])
 }
 
 const mediaPlayerSource = readFileSync(

@@ -9,17 +9,27 @@ export const MAX_PLAYLIST_MANIFEST_BYTES = 512 * 1024
 const MANIFEST_DIRECTORY_NAME = 'playlist-manifests/'
 const REMOTE_MEDIA_URL_PATTERN = /^https?:\/\/[^\s]+$/
 
+// One malformed entry used to reject the whole snapshot, which froze the totem on
+// stale content until somebody fixed the dashboard. Dropping the bad entries keeps
+// the rest of the loop playing; a snapshot where nothing survives is still refused
+// so a fully corrupt read cannot blank a screen that has working content.
 export function sanitizePlaylist(value) {
   if (value === null) return []
   if (typeof value !== 'object') return null
 
   const items = []
+  let discarded = 0
   for (const key in value) {
     if (!Object.prototype.hasOwnProperty.call(value, key)) continue
-    if (items.length === MAX_PLAYLIST_ITEMS) return null
+    // Truncating past the cap keeps the bounded-memory guarantee without
+    // discarding the items the screen can actually play.
+    if (items.length === MAX_PLAYLIST_ITEMS) break
 
     const item = value[key]
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      discarded += 1
+      continue
+    }
 
     const videoUrl = item.videoUrl
     if (
@@ -28,11 +38,16 @@ export function sanitizePlaylist(value) {
       videoUrl.length > MAX_MEDIA_URL_LENGTH ||
       !REMOTE_MEDIA_URL_PATTERN.test(videoUrl)
     ) {
-      return null
+      discarded += 1
+      continue
     }
 
     items.push({ videoUrl })
   }
+
+  // An empty input is an authoritative "no content" and must still clear the
+  // screen, unlike an input whose every entry turned out to be unusable.
+  if (items.length === 0 && discarded > 0) return null
 
   return items
 }

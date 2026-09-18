@@ -239,6 +239,10 @@ class KioskModule : Module() {
       }
     }
 
+    // Drawn on the device: the screen that shows a pairing code is exactly the
+    // screen of a totem that has no internet yet.
+    Function("qrCode") { payload: String, size: Int? -> qrPng(payload, size ?: 480) }
+
     Function("scanNetworks") { -> scanNetworks() }
 
     Function("connect") { ssid: String, password: String? -> joinNetwork(ssid, password) }

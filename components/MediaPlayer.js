@@ -4,6 +4,7 @@ import { getDatabase, ref, onValue } from 'firebase/database'
 import { getDeviceId } from './utils/deviceId'
 import StatusScreen, { StatusTone } from './StatusScreen'
 import SystemVolume from '../modules/system-volume'
+import Kiosk from '../modules/kiosk'
 import {
   createSystemVolumeController,
   normalizeDashboardVolume,
@@ -13,6 +14,11 @@ import playlistManifestStore, {
   createPlaylistBootstrapCoordinator,
   sanitizePlaylist,
 } from './utils/playlistManifestStore'
+import {
+  MediaRecoveryAction,
+  resolveMediaRecovery,
+} from './utils/mediaRecoveryPolicy'
+import { resolveDeviceQrSource } from './utils/deviceQrSource'
 import {
   isPictureInPictureSupported,
   useVideoPlayer,
@@ -29,10 +35,16 @@ const MediaType = {
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.avi', '.mov'])
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.png', '.jpeg'])
-const MEDIA_ERROR_DISPLAY_MS = 2000
 const VIDEO_STARTUP_GRACE_MS = 20000
 const VIDEO_STALL_THRESHOLD_MS = 12000
 const VIDEO_MINIMUM_PROGRESS_SECONDS = 0.25
+
+// The native kiosk module can render a pairing QR without network but does not
+// expose it to JS yet. Pointing this at that generator is the only change needed
+// once it does; until then the helper falls back to the remote endpoint.
+// Falls back to the remote service when the native module is unavailable, so
+// the same build still runs on a phone or an unprovisioned television.
+const LOCAL_QR_GENERATOR = (payload, size) => Kiosk.qrCode(payload, size)
 
 function claimPlaybackTransition(
   generation,
@@ -140,10 +152,14 @@ export default function MediaPlayer({
   const [error, setError] = useState(null)
   const [localUri, setLocalUri] = useState(null)
   const [sourceGeneration, setSourceGeneration] = useState(null)
-  const [qrUrl, setQrUrl] = useState(null)
+  const [qrSource, setQrSource] = useState(null)
+  // A retry keeps the same index, so only a changing token can re-run the media
+  // effect and hand the item a fresh generation.
+  const [retryNonce, setRetryNonce] = useState(0)
   const systemVolumeRef = useRef(null)
   const imageTimeoutRef = useRef(null)
   const recoveryTimeoutRef = useRef(null)
+  const retryAttemptsRef = useRef(0)
   const generationCounterRef = useRef(0)
   const activeGenerationRef = useRef(null)
   const transitionHandledGenerationRef = useRef(null)
@@ -321,11 +337,21 @@ export default function MediaPlayer({
     }
   }, [currentPlaylist, currentIndex])
 
+  // Backoff is per item: a new item starts from the shortest delay even if the
+  // previous one had been failing for hours.
+  useEffect(() => {
+    retryAttemptsRef.current = 0
+  }, [currentItem])
+
   const playNextItem = useCallback(() => {
     const playlistLength = playlistLengthRef.current
     if (playlistLength > 0) {
       setCurrentIndex((prevIndex) => (prevIndex + 1) % playlistLength)
     }
+  }, [])
+
+  const retryCurrentItem = useCallback(() => {
+    setRetryNonce((previousNonce) => previousNonce + 1)
   }, [])
 
   const advanceCurrentItem = useCallback((generation) => {
@@ -357,16 +383,25 @@ export default function MediaPlayer({
 
       if (details) console.error(message, details)
 
-      if (playlistLengthRef.current > 1) {
-        recoveryTimeoutRef.current = setTimeout(() => {
-          if (activeGenerationRef.current !== generation) return
+      retryAttemptsRef.current += 1
+      const recovery = resolveMediaRecovery({
+        playlistLength: playlistLengthRef.current,
+        failureCount: retryAttemptsRef.current,
+      })
+      if (recovery.action === MediaRecoveryAction.NONE) return
 
-          recoveryTimeoutRef.current = null
+      recoveryTimeoutRef.current = setTimeout(() => {
+        if (activeGenerationRef.current !== generation) return
+
+        recoveryTimeoutRef.current = null
+        if (recovery.action === MediaRecoveryAction.ADVANCE) {
           playNextItem()
-        }, MEDIA_ERROR_DISPLAY_MS)
-      }
+        } else {
+          retryCurrentItem()
+        }
+      }, recovery.delayMs)
     },
-    [playNextItem]
+    [playNextItem, retryCurrentItem]
   )
   watchdogFailureHandlerRef.current = (generation) =>
     handleMediaFailure(generation, 'Video playback stalled')
@@ -471,7 +506,9 @@ export default function MediaPlayer({
         videoWatchdogRef.current.deactivate(generation)
       }
     }
-  }, [currentItem, advanceCurrentItem, handleMediaFailure])
+    // retryNonce is a trigger, not data: it re-runs this effect so a retried item
+    // is re-acquired under a new generation that stale callbacks cannot claim.
+  }, [currentItem, retryNonce, advanceCurrentItem, handleMediaFailure])
 
   const getMediaType = (url) => {
     if (typeof url !== 'string') return MediaType.UNKNOWN
@@ -506,6 +543,9 @@ export default function MediaPlayer({
       return
     }
 
+    // A screen that displayed the item earned a clean slate, so a blip hours
+    // later is retried promptly instead of at the backoff ceiling.
+    retryAttemptsRef.current = 0
     setError(null)
     setIsLoading(false)
   }, [])
@@ -559,6 +599,7 @@ export default function MediaPlayer({
           status === 'readyToPlay' &&
           transitionHandledGenerationRef.current !== generation
         ) {
+          retryAttemptsRef.current = 0
           setError(null)
           if (!player.playing) {
             player.play()
@@ -711,14 +752,20 @@ export default function MediaPlayer({
   }
 
   useEffect(() => {
+    let isMounted = true
+
     const fetchDeviceQRCode = async () => {
       const id = await getDeviceId()
-      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=0&data=${encodeURIComponent(
-        id
-      )}`
-      setQrUrl(qrApiUrl)
+      const source = await resolveDeviceQrSource(id, {
+        generateLocalQr: LOCAL_QR_GENERATOR,
+      })
+      if (isMounted) setQrSource(source)
     }
     fetchDeviceQRCode()
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   if (isLoading) {
@@ -731,7 +778,7 @@ export default function MediaPlayer({
             title='¡Todo listo!'
             message='Escanea este código con el panel para elegir qué se muestra aquí.'
             deviceId={deviceId}
-            qrUrl={qrUrl}
+            qrUrl={qrSource?.uri}
             rotation={rotation}
           />
         )}
@@ -762,7 +809,7 @@ export default function MediaPlayer({
           title='¡Todo listo!'
           message='Escanea este código con el panel para elegir qué se muestra aquí.'
           deviceId={deviceId}
-          qrUrl={qrUrl}
+          qrUrl={qrSource?.uri}
           rotation={rotation}
         />
       )}
