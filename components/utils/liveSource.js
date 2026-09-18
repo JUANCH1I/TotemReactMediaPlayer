@@ -1,9 +1,11 @@
 import { LIVE_SCREEN_NAME, SCREEN_NAMES } from './screenNames'
+import { isAcceptableStreamUrl } from './privateNetwork'
 
 // What the dashboard wrote under devices/{id}/live, checked before it reaches
 // the player. A live stream URL is pasted by a person, so anything that is not
-// an https address of sane length is treated as "no broadcast" rather than
-// handed to the native player to choke on.
+// an https address of sane length (or plain http on the venue's own private
+// network) is treated as "no broadcast" rather than handed to the native
+// player to choke on.
 
 export const MAX_LIVE_URL_LENGTH = 4096
 // Where the totem goes back to when the broadcast ends or is given up on: any
@@ -12,8 +14,6 @@ export const LIVE_RETURN_SCREENS = Object.freeze(
   SCREEN_NAMES.filter((name) => name !== LIVE_SCREEN_NAME)
 )
 export const DEFAULT_RETURN_SCREEN = 'MediaPlayer'
-
-const LIVE_URL_PATTERN = /^https:\/\/[^\s]+$/
 
 export function normalizeReturnScreen(value) {
   return typeof value === 'string' && LIVE_RETURN_SCREENS.includes(value)
@@ -29,7 +29,7 @@ export function normalizeLiveSource(value) {
     typeof url !== 'string' ||
     url.length === 0 ||
     url.length > MAX_LIVE_URL_LENGTH ||
-    !LIVE_URL_PATTERN.test(url)
+    !isAcceptableStreamUrl(url)
   ) {
     return null
   }

@@ -11,15 +11,19 @@ async function loadModule() {
   const source = readFileSync(url, 'utf8')
   const context = vm.createContext({ Array, Number, Object, RegExp })
   const module = new vm.SourceTextModule(source, { context, identifier: url.href })
+  const allowed = {
+    './screenNames': '../components/utils/screenNames.js',
+    './privateNetwork': '../components/utils/privateNetwork.js',
+  }
   await module.link((specifier) => {
-    if (specifier !== './screenNames') {
+    if (!allowed[specifier]) {
       throw new Error(`Unexpected import: ${specifier}`)
     }
 
-    const namesUrl = new URL('../components/utils/screenNames.js', import.meta.url)
-    return new vm.SourceTextModule(readFileSync(namesUrl, 'utf8'), {
+    const depUrl = new URL(allowed[specifier], import.meta.url)
+    return new vm.SourceTextModule(readFileSync(depUrl, 'utf8'), {
       context,
-      identifier: namesUrl.href,
+      identifier: depUrl.href,
     })
   })
   await module.evaluate()
@@ -103,5 +107,13 @@ assert.equal(
   DEFAULT_RETURN_SCREEN,
   'Returning to the live screen itself would loop; it is never allowed.'
 )
+
+// Plain http is only accepted towards the venue's own private network.
+assert.equal(
+  normalizeLiveSource({ url: 'http://192.168.1.35:8888/pantalla/index.m3u8' })?.url,
+  'http://192.168.1.35:8888/pantalla/index.m3u8'
+)
+assert.equal(normalizeLiveSource({ url: 'http://example.com/index.m3u8' }), null)
+assert.equal(normalizeLiveSource({ url: 'http://8.8.8.8/index.m3u8' }), null)
 
 console.log('Live source behavior checks passed.')
