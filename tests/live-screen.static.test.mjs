@@ -85,8 +85,24 @@ assert.match(sessionSource, /player\.addListener\('playingChange'/)
 
 // Audio never outlives the broadcast: the session silences the player when
 // the node is cleared and when the screen goes away.
-assert.match(sessionSource, /try \{\s*\n\s*player\.pause\(\)/)
-assert.match(sessionSource, /try \{\s*\n\s*player\.replace\(null\)/)
+// Every player access goes through the guard: a released native object
+// throws on any call or property read.
+assert.match(sessionSource, /withPlayer\('pause', \(\) => player\.pause\(\)\)/)
+assert.match(sessionSource, /withPlayer\('release', \(\) => player\.replace\(null\)\)/)
+assert.match(sessionSource, /withPlayer\('status read', \(\) => player\.status/)
+assert.match(sessionSource, /withPlayer\(\s*'open'/)
+assert.match(sessionSource, /withPlayer\('play', \(\) => player\.play\(\)\)/)
+{
+  // A player access is guarded when it sits on a withPlayer( line or within
+  // the three lines after one (multi-line arrow bodies).
+  const lines = sessionSource.split('\n')
+  const unguarded = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /player\.(status|playing|play\(|pause\(|replace\()/.test(line))
+    .filter(({ index }) => !lines.slice(Math.max(0, index - 3), index + 1).some((l) => l.includes('withPlayer(')))
+    .map(({ index, line }) => `${index + 1}: ${line.trim()}`)
+  assert.deepEqual(unguarded, [], 'unguarded player access: ' + unguarded.join(' | '))
+}
 assert.ok(
   (source.match(/session(?:Ref\.current)?\.stop\(\)/g) ?? []).length >= 2,
   'The session must be stopped when the broadcast changes and on unmount.'

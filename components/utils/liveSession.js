@@ -109,25 +109,28 @@ export function createLiveSession({
   }
 
   // The native player may already be released when the screen unmounts
-  // (expo-video frees it on its own); a rejected call must never throw out
-  // of an effect cleanup, which would take the whole app down.
-  const silence = () => {
+  // (expo-video frees it on its own). Any access to a released shared
+  // object throws, even reading a property, and an exception escaping an
+  // effect cleanup or a timer takes the whole app down. Every player access
+  // therefore goes through this guard.
+  const withPlayer = (label, action, fallback = undefined) => {
     try {
-      player.pause()
+      return action()
     } catch (error) {
-      console.warn('Live player pause skipped:', error?.message || error)
+      console.warn(`Live player ${label} skipped:`, error?.message || error)
+      return fallback
     }
+  }
+
+  const silence = () => {
+    withPlayer('pause', () => player.pause())
     // Unloading a player that holds nothing (idle, or errored before it
     // loaded) makes ExoPlayer open an empty source and log a playback error;
     // only a loaded or loading source needs releasing. An unknown status is
     // treated as loaded so audio can never be left running.
-    const status = player.status
-    if (status === 'idle' || status === 'error') return
-    try {
-      player.replace(null)
-    } catch (error) {
-      console.warn('Live player release skipped:', error?.message || error)
-    }
+    const status = withPlayer('status read', () => player.status, 'released')
+    if (status === 'idle' || status === 'error' || status === 'released') return
+    withPlayer('release', () => player.replace(null))
   }
 
   const watchdog = createLiveStallWatchdog({
@@ -142,7 +145,15 @@ export function createLiveSession({
     healthyThisAttempt = false
     clearHealthyTimer()
     watchdog.start()
-    player.replace({ uri: url, contentType: 'hls', liveTargetOffset: LIVE_TARGET_OFFSET_SECONDS })
+    const opened = withPlayer(
+      'open',
+      () => {
+        player.replace({ uri: url, contentType: 'hls', liveTargetOffset: LIVE_TARGET_OFFSET_SECONDS })
+        return true
+      },
+      false
+    )
+    if (!opened) fail('player unavailable')
   }
 
   // Asks for the screen back, exactly once, and only when the totem can
@@ -206,8 +217,8 @@ export function createLiveSession({
 
       if (status === 'error') {
         fail(error?.message ?? 'player error')
-      } else if (status === 'readyToPlay' && !player.playing) {
-        player.play()
+      } else if (status === 'readyToPlay' && !withPlayer('playing read', () => player.playing, true)) {
+        withPlayer('play', () => player.play())
       }
     },
     handlePlaying({ isPlaying }) {

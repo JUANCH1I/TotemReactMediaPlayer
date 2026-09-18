@@ -485,4 +485,38 @@ function createControlledStream(scheduler) {
   }
 }
 
+// A player expo-video already released throws on every call and even on
+// property reads; the session must survive both starting and stopping.
+{
+  const released = new Proxy(
+    {},
+    {
+      get(_target, key) {
+        if (key === 'addListener') return () => ({ remove() {} })
+        if (key === 'removeListener') return () => {}
+        if (typeof key === 'symbol' || key === 'then') return undefined
+        throw new Error('Cannot use shared object that was already released')
+      },
+      set() {
+        throw new Error('Cannot use shared object that was already released')
+      },
+    }
+  )
+  const scheduler = createScheduler()
+  const phases = []
+  const session = createLiveSession({
+    player: released,
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+    now: scheduler.now,
+    isConnected: () => true,
+    onGiveUp: () => {},
+    onPhase: (phase) => phases.push(phase),
+    watchdogOptions: { startupGraceMs: 5000, stallMs: 3000 },
+  })
+  assert.doesNotThrow(() => session.start('https://live.example.com/tv/index.m3u8'))
+  assert.doesNotThrow(() => session.stop())
+  assert.ok(phases.length > 0, 'the session reported a phase despite the released player')
+}
+
 console.log('Live session behavior checks passed.')
