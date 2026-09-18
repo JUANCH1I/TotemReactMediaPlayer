@@ -17,6 +17,9 @@ import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
 import StatusScreen, { StatusTone } from './components/StatusScreen';
 import MaintenanceScreen from './components/MaintenanceScreen';
+import orientationStore, {
+  normalizeAngle,
+} from './components/utils/orientationStore';
 import Kiosk from './modules/kiosk';
 import { getDeviceId } from './components/utils/deviceId';
 import {
@@ -164,6 +167,7 @@ export default function App(): React.JSX.Element {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
   const [maintenancePin, setMaintenancePin] = useState<string | null>(null);
+  const [rotation, setRotation] = useState(0);
   const servicePresses = useRef(0);
   const servicePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -184,6 +188,41 @@ export default function App(): React.JSX.Element {
       servicePresses.current = 0;
     }, MAINTENANCE_PRESS_WINDOW_MS);
   }, []);
+
+  // How this screen is mounted, from the device first so the very first frame
+  // is already the right way up, then from the dashboard, which owns the value.
+  useEffect(() => {
+    let isMounted = true;
+
+    orientationStore.load().then((stored: number | null) => {
+      if (isMounted && stored !== null) {
+        setRotation(stored);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!deviceId) {
+      return undefined;
+    }
+
+    return onValue(
+      ref(getDatabase(), `devices/${deviceId}/rotation`),
+      (snapshot) => {
+        const angle = normalizeAngle(snapshot.val());
+        if (angle === null) {
+          return;
+        }
+
+        setRotation(angle);
+        orientationStore.save(angle);
+      },
+    );
+  }, [deviceId]);
 
   // The service code is read on every totem, not only provisioned ones.
   useEffect(() => {
@@ -289,6 +328,7 @@ export default function App(): React.JSX.Element {
       <SafeAreaView style={styles.container}>
         <StatusBar hidden />
         <StatusScreen
+          rotation={rotation}
           tone={StatusTone.WAITING}
           title="Encendiendo la pantalla"
           message="Un momento, estamos buscando tu contenido."
@@ -303,6 +343,7 @@ export default function App(): React.JSX.Element {
       <SafeAreaView style={styles.container}>
         <StatusBar hidden />
         <StatusScreen
+          rotation={rotation}
           tone={StatusTone.ERROR}
           title="No pudimos conectarnos"
           message="Revisa que el televisor tenga internet. Mientras tanto seguimos intentando solos."
@@ -333,6 +374,7 @@ export default function App(): React.JSX.Element {
       ) : null}
       {maintenanceVisible ? (
         <MaintenanceScreen
+          rotation={rotation}
           deviceId={deviceId}
           pin={maintenancePin}
           onClose={() => setMaintenanceVisible(false)}
