@@ -9,7 +9,7 @@ import vm from 'node:vm'
 async function loadModule() {
   const url = new URL('../components/utils/liveRecovery.js', import.meta.url)
   const source = readFileSync(url, 'utf8')
-  const context = vm.createContext({ Math, Number, setTimeout, clearTimeout })
+  const context = vm.createContext({ Date, Math, Number, setTimeout, clearTimeout })
   const module = new vm.SourceTextModule(source, { context, identifier: url.href })
   await module.link((specifier) => {
     if (specifier !== './mediaRecoveryPolicy') {
@@ -30,12 +30,15 @@ const plain = (value) => JSON.parse(JSON.stringify(value))
 
 const {
   LIVE_GIVE_UP_MS,
+  LIVE_HEALTHY_AFTER_SECONDS,
   LiveRecoveryAction,
   createLiveStallWatchdog,
+  monotonicNow,
   resolveLiveRecovery,
 } = await loadModule()
 
 assert.equal(LIVE_GIVE_UP_MS, 10 * 60 * 1000)
+assert.equal(LIVE_HEALTHY_AFTER_SECONDS, 15)
 
 {
   // Short outages: the single-item backoff, 2 s doubling to a 30 s ceiling.
@@ -83,7 +86,7 @@ assert.equal(LIVE_GIVE_UP_MS, 10 * 60 * 1000)
     resolveLiveRecovery({ failingSinceMs: startedAt, nowMs: startedAt + LIVE_GIVE_UP_MS, attempt: 1 })
       .action,
     LiveRecoveryAction.GIVE_UP,
-    'A first failure that is already old (clock jump) still gives up.'
+    'The streak length, not the attempt count, decides.'
   )
   assert.equal(
     resolveLiveRecovery({
@@ -95,6 +98,26 @@ assert.equal(LIVE_GIVE_UP_MS, 10 * 60 * 1000)
     LiveRecoveryAction.GIVE_UP,
     'The limit is adjustable.'
   )
+}
+
+{
+  // The streak is measured on an injectable monotonic clock, never on the
+  // wall clock: an RTC jump after an NTP sync must not look like ten minutes
+  // of failure.
+  let ticks = 100_000
+  const now = () => ticks
+  const failingSinceMs = now()
+  ticks += LIVE_GIVE_UP_MS - 1
+  assert.equal(
+    resolveLiveRecovery({ failingSinceMs, attempt: 9, now }).action,
+    LiveRecoveryAction.RETRY,
+    'nowMs defaults to the injected clock.'
+  )
+  ticks += 1
+  assert.equal(resolveLiveRecovery({ failingSinceMs, attempt: 9, now }).action, LiveRecoveryAction.GIVE_UP)
+  // Without performance.now in this realm the default falls back to Date.now,
+  // but it is a function either way.
+  assert.equal(typeof monotonicNow(), 'number')
 }
 
 {
@@ -142,32 +165,62 @@ function createScheduler() {
 function createHarness() {
   const scheduler = createScheduler()
   let stalls = 0
+  let healthy = 0
   const watchdog = createLiveStallWatchdog({
     onStall: () => {
       stalls += 1
+    },
+    onHealthy: () => {
+      healthy += 1
     },
     schedule: scheduler.schedule,
     cancel: scheduler.cancel,
     startupGraceMs: 100,
     stallThresholdMs: 50,
     minimumProgressSeconds: 0.25,
+    healthyAfterSeconds: 3,
   })
-  return { scheduler, watchdog, stalls: () => stalls }
+  return { scheduler, watchdog, stalls: () => stalls, healthy: () => healthy }
 }
 
 {
   const { scheduler, watchdog, stalls } = createHarness()
   watchdog.start()
   scheduler.advance(80)
-  watchdog.recordProgress(0.5)
+  watchdog.recordProgress(100.5)
+  scheduler.advance(10)
+  watchdog.recordProgress(101)
   scheduler.advance(40)
-  watchdog.recordProgress(1)
+  watchdog.recordProgress(101.5)
   scheduler.advance(40)
   assert.equal(stalls(), 0, 'Progress keeps the stream alive.')
   scheduler.advance(10)
   assert.equal(stalls(), 1, 'A frozen stream trips the watchdog once.')
   scheduler.advance(500)
   assert.equal(stalls(), 1)
+}
+
+{
+  // A stream is healthy only after real, accumulated progress; the first
+  // reading is where a live stream happens to start, not progress, and
+  // "playing" without movement never counts.
+  const { scheduler, watchdog, healthy } = createHarness()
+  watchdog.start()
+  watchdog.recordProgress(500)
+  assert.equal(healthy(), 0, 'The first reading is a starting point.')
+  watchdog.recordProgress(501)
+  watchdog.recordProgress(502)
+  scheduler.advance(10)
+  assert.equal(healthy(), 0, 'Two seconds is not enough.')
+  watchdog.recordProgress(503)
+  assert.equal(healthy(), 1, 'Three seconds of movement is.')
+  watchdog.recordProgress(510)
+  assert.equal(healthy(), 1, 'Reported once per session.')
+  watchdog.start()
+  watchdog.recordProgress(0)
+  watchdog.recordProgress(0.1)
+  watchdog.recordProgress(0.2)
+  assert.equal(healthy(), 1, 'Jitter below the progress floor is not movement.')
 }
 
 {

@@ -3,67 +3,75 @@ import { readFileSync } from 'node:fs'
 
 // The live screen is a separate path from the playlist engine; these pin the
 // few things that make it safe to leave running unattended: it follows the
-// dashboard, validates what it plays, rotates with the totem, recovers, and
-// leaves nothing behind when the dashboard takes the screen back.
+// dashboard, validates what it plays, rotates with the totem, recovers through
+// the tested session, and leaves nothing behind when the dashboard takes the
+// screen back.
 
 const source = readFileSync(
   new URL('../components/LiveScreen.js', import.meta.url),
   'utf8'
 )
+const sessionSource = readFileSync(
+  new URL('../components/utils/liveSession.js', import.meta.url),
+  'utf8'
+)
 
-// Follows the dashboard, with an error callback, released via the returned
-// function (never off()).
+// Follows the dashboard, with an error callback on every subscription,
+// released via the returned functions (never off()).
 assert.match(source, /`devices\/\$\{id\}\/live`/)
-assert.match(source, /unsubscribeLive = onValue\(/)
-assert.match(source, /\(subscriptionError\) => \{/)
-assert.match(source, /unsubscribeLive\?\.\(\)/)
-assert.match(source, /unsubscribeRotation\?\.\(\)/)
+assert.match(source, /`devices\/\$\{id\}\/rotation`/)
+assert.match(source, /`devices\/\$\{id\}\/volume`/)
+assert.match(source, /'\.info\/connected'/)
+const subscriptions = (source.match(/onValue\(/g) ?? []).length
+const errorCallbacks = (source.match(/\(subscriptionError\) => \{/g) ?? []).length
+assert.equal(subscriptions, 4)
+assert.equal(errorCallbacks, subscriptions, 'Every subscription must carry an error callback.')
+assert.match(source, /unsubscribers\.forEach\(\(unsubscribe\) => unsubscribe\(\)\)/)
 assert.doesNotMatch(source, /\boff\s*\(/)
 
-// Plays only what the validator lets through, straight from the network.
+// Plays only what the validator lets through, explicitly as HLS, straight
+// from the network, through the tested session.
 assert.match(source, /normalizeLiveSource\(snapshot\.val\(\)\)/)
-assert.match(source, /player\.replace\(url\)/)
+assert.match(source, /createLiveSession\(\{/)
+assert.match(source, /session\.start\(url\)/)
+assert.match(sessionSource, /player\.replace\(\{ uri: url, contentType: 'hls' \}\)/)
 assert.match(source, /instance\.loop = false/)
 assert.doesNotMatch(source, /mediaCacheManager|playlistManifestStore|computeSchedule/)
+assert.doesNotMatch(source, /setTimeout\(|setInterval\(/, 'Timers belong to the session.')
+
+// A new broadcast with the same URL reopens the stream.
+assert.match(source, /\[hasSnapshot, url, startedAt\]/)
 
 // Rotates exactly like the player and the status screens.
-assert.match(source, /`devices\/\$\{id\}\/rotation`/)
 assert.match(source, /normalizeAngle\(snapshot\.val\(\)\)/)
 assert.match(source, /rotate: `\$\{rotationAngle\}deg`/)
 assert.match(source, /rotation=\{rotation\}/)
 assert.match(source, /surfaceType=\{isQuarterTurn \? 'textureView' : 'surfaceView'\}/)
+
+// The dashboard slider drives the television during a broadcast.
+assert.match(source, /createSystemVolumeController\(\{ nativeModule: SystemVolume \}\)/)
+assert.match(source, /setDesiredVolume\(level\)/)
+assert.match(source, /controller\.destroy\(\)/)
 
 // Overlay copy is on screen, in Spanish.
 assert.match(source, /Conectando con la transmisión…/)
 assert.match(source, /Transmisión interrumpida, reintentando…/)
 assert.match(source, /Sin transmisión configurada/)
 
-// Recovery goes through the pure policy and gives the screen back once.
-assert.match(source, /resolveLiveRecovery\(\{/)
-assert.match(source, /createLiveStallWatchdog\(\{/)
-assert.match(source, /LiveRecoveryAction\.GIVE_UP/)
-assert.match(source, /setTimeout\(giveUp, LIVE_GIVE_UP_MS\)/)
-assert.match(source, /`devices\/\$\{id\}\/currentScreen`/)
-assert.match(source, /if \(gaveUpRef\.current\) return/)
+// Giving the screen back: only while connected (the session checks), and only
+// if the dashboard still has it on Live.
+assert.match(source, /isConnected: \(\) => connectedRef\.current/)
+assert.match(source, /runTransaction\(/)
+assert.match(source, /current === LIVE_SCREEN_NAME \? returnTo : undefined/)
+assert.doesNotMatch(source, /\bset\(ref\(/, 'A blind write could overwrite a dashboard decision.')
+assert.match(sessionSource, /if \(!isConnected\(\)\)/)
 
-// Every timer and listener is cleaned up when the attempt or the screen ends.
+// Audio never outlives the broadcast: the session silences the player when
+// the node is cleared and when the screen goes away.
+assert.match(sessionSource, /player\.pause\(\)\s*\n\s*player\.replace\(null\)/)
 assert.ok(
-  (source.match(/clearTimeout\(retryTimeoutRef\.current\)/g) ?? []).length >= 2,
-  'The retry timer must be cleared per attempt and on unmount.'
+  (source.match(/session(?:Ref\.current)?\.stop\(\)/g) ?? []).length >= 2,
+  'The session must be stopped when the broadcast changes and on unmount.'
 )
-assert.ok(
-  (source.match(/clearTimeout\(giveUpTimeoutRef\.current\)/g) ?? []).length >= 2,
-  'The give-up timer must be cleared when a source arrives and on unmount.'
-)
-assert.match(source, /watchdog\.stop\(\)/)
-for (const subscription of [
-  'statusChangeSubscription',
-  'playingChangeSubscription',
-  'timeUpdateSubscription',
-  'playToEndSubscription',
-]) {
-  assert.match(source, new RegExp(`${subscription}\\.remove\\(\\)`))
-}
-assert.doesNotMatch(source, /setInterval\s*\(/)
 
 console.log('Live screen static checks passed.')

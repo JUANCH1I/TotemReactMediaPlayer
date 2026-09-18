@@ -9,16 +9,28 @@ import { resolveMediaRecovery } from './mediaRecoveryPolicy'
 // room is worse than the playlist, so the totem hands itself back.
 
 export const LIVE_GIVE_UP_MS = 10 * 60 * 1000
+// Progress the stream must make before it counts as healthy again. A stream
+// that says "playing" but never advances is not healthy.
+export const LIVE_HEALTHY_AFTER_SECONDS = 15
 
 export const LiveRecoveryAction = {
   RETRY: 'RETRY',
   GIVE_UP: 'GIVE_UP',
 }
 
+// The failure streak is measured on a monotonic clock: a television whose
+// wall clock jumps forward after an NTP sync must not look like it has been
+// failing for hours.
+export const monotonicNow = () =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+
 export function resolveLiveRecovery({
   failingSinceMs,
-  nowMs,
   attempt,
+  now = monotonicNow,
+  nowMs = now(),
   giveUpAfterMs = LIVE_GIVE_UP_MS,
 }) {
   const failingForMs =
@@ -41,18 +53,23 @@ export function resolveLiveRecovery({
 // native player only reports the latter. This is the MediaPlayer watchdog
 // reduced to one stream: no item generations, just a session that `start`
 // opens and `stop` closes so a timer from a previous attempt cannot fire into
-// the next one.
+// the next one. It also reports when the stream has genuinely advanced for a
+// while, which is the only evidence that a recovery worked.
 export function createLiveStallWatchdog({
   onStall,
+  onHealthy = () => {},
   schedule = setTimeout,
   cancel = clearTimeout,
   startupGraceMs = 20000,
   stallThresholdMs = 12000,
   minimumProgressSeconds = 0.25,
+  healthyAfterSeconds = LIVE_HEALTHY_AFTER_SECONDS,
 }) {
   let session = 0
   let active = false
-  let lastPlaybackTime = 0
+  let lastPlaybackTime = null
+  let progressSeconds = 0
+  let healthyReported = false
   let timeout = null
 
   const clearTimer = () => {
@@ -80,23 +97,34 @@ export function createLiveStallWatchdog({
       clearTimer()
       session += 1
       active = true
-      lastPlaybackTime = 0
+      lastPlaybackTime = null
+      progressSeconds = 0
+      healthyReported = false
       arm(startupGraceMs)
     },
     allowGrace() {
       arm(startupGraceMs)
     },
     recordProgress(currentTime) {
-      if (
-        !active ||
-        !Number.isFinite(currentTime) ||
-        Math.abs(currentTime - lastPlaybackTime) < minimumProgressSeconds
-      ) {
+      if (!active || !Number.isFinite(currentTime)) return
+
+      // The first reading is where a live stream happens to start, not
+      // progress; only movement from there counts.
+      if (lastPlaybackTime === null) {
+        lastPlaybackTime = currentTime
         return
       }
 
+      const delta = Math.abs(currentTime - lastPlaybackTime)
+      if (delta < minimumProgressSeconds) return
+
       lastPlaybackTime = currentTime
+      progressSeconds += delta
       arm(stallThresholdMs)
+      if (!healthyReported && progressSeconds >= healthyAfterSeconds) {
+        healthyReported = true
+        onHealthy()
+      }
     },
     stop() {
       active = false

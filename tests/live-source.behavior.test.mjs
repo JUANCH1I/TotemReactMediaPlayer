@@ -9,10 +9,18 @@ import vm from 'node:vm'
 async function loadModule() {
   const url = new URL('../components/utils/liveSource.js', import.meta.url)
   const source = readFileSync(url, 'utf8')
-  const context = vm.createContext({ Array, Object, RegExp })
+  const context = vm.createContext({ Array, Number, Object, RegExp })
   const module = new vm.SourceTextModule(source, { context, identifier: url.href })
-  await module.link(() => {
-    throw new Error('The live source validator must stay free of runtime dependencies.')
+  await module.link((specifier) => {
+    if (specifier !== './screenNames') {
+      throw new Error(`Unexpected import: ${specifier}`)
+    }
+
+    const namesUrl = new URL('../components/utils/screenNames.js', import.meta.url)
+    return new vm.SourceTextModule(readFileSync(namesUrl, 'utf8'), {
+      context,
+      identifier: namesUrl.href,
+    })
   })
   await module.evaluate()
   return module.namespace
@@ -31,15 +39,22 @@ const {
 const streamUrl = 'https://cdn.example/live/channel.m3u8?token=abc'
 
 assert.deepEqual(
-  plain(normalizeLiveSource({ url: streamUrl, startedAt: 1, returnTo: 'Canvas' })),
-  { url: streamUrl, returnTo: 'Canvas' },
-  'Only the URL and the return screen matter to the player.'
+  plain(normalizeLiveSource({ url: streamUrl, startedAt: 1700000000000, returnTo: 'Canvas' })),
+  { url: streamUrl, returnTo: 'Canvas', startedAt: 1700000000000 },
+  'The URL, the return screen and the broadcast start are what the screen needs.'
 )
 assert.deepEqual(
   plain(normalizeLiveSource({ url: 'https://cdn.example/live/index' })),
-  { url: 'https://cdn.example/live/index', returnTo: DEFAULT_RETURN_SCREEN },
+  { url: 'https://cdn.example/live/index', returnTo: DEFAULT_RETURN_SCREEN, startedAt: null },
   'A manifest URL without the .m3u8 suffix is still a URL; the player decides.'
 )
+for (const startedAt of ['1700000000000', Number.NaN, null, {}]) {
+  assert.equal(
+    normalizeLiveSource({ url: streamUrl, startedAt }).startedAt,
+    null,
+    `An unusable start time is simply unknown: ${String(startedAt)}`
+  )
+}
 
 // Every unusable value means "no broadcast", never a crash or a bad URL.
 for (const notALiveSource of [
@@ -70,12 +85,13 @@ assert.equal(
   'The cap is inclusive.'
 )
 
-// The return screen is always one the navigator can resolve.
-assert.deepEqual([...LIVE_RETURN_SCREENS], ['MediaPlayer', 'TimeWeather', 'Canvas', 'YoutubePlayer'])
+// The return screen is always one the navigator can resolve: its allowlist
+// minus the live screen itself. YoutubePlayer is not a navigator screen.
+assert.deepEqual([...LIVE_RETURN_SCREENS], ['MediaPlayer', 'TimeWeather', 'Canvas', 'Carousel'])
 for (const screen of LIVE_RETURN_SCREENS) {
   assert.equal(normalizeReturnScreen(screen), screen)
 }
-for (const invalid of [undefined, null, '', 'Live', 'Carousel', '__proto__', 7]) {
+for (const invalid of [undefined, null, '', 'Live', 'YoutubePlayer', '__proto__', 7]) {
   assert.equal(
     normalizeReturnScreen(invalid),
     DEFAULT_RETURN_SCREEN,

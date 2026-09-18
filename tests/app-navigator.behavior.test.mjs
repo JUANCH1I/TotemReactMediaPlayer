@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import vm from 'node:vm'
 
 const sourcePath = process.env.APP_NAVIGATOR_SOURCE
   ? new URL(`file://${process.env.APP_NAVIGATOR_SOURCE}`)
@@ -32,6 +33,37 @@ const screens = Object.freeze({
 // The live screen is reached only through the frozen allowlist, like the rest.
 assert.match(source, /Live:\s*LiveScreen,/)
 assert.match(source, /import LiveScreen from '\.\/LiveScreen'/)
+
+// Pure modules derive their allowlists from utils/screenNames.js, which must
+// name exactly the keys of the navigator's frozen component map.
+{
+  const mapStart = source.indexOf('const SCREEN_COMPONENTS = Object.freeze({')
+  const mapEnd = source.indexOf('})', mapStart)
+  assert.ok(mapStart !== -1 && mapEnd > mapStart)
+  const navigatorKeys = source
+    .slice(mapStart, mapEnd)
+    .split('\n')
+    .slice(1)
+    .map((line) => line.trim().replace(/,$/, ''))
+    .filter((line) => line.length > 0 && !line.startsWith('//'))
+    .map((entry) => entry.split(':')[0].trim())
+
+  const namesUrl = new URL('../components/utils/screenNames.js', import.meta.url)
+  const namesModule = new vm.SourceTextModule(readFileSync(namesUrl, 'utf8'), {
+    context: vm.createContext({ Object }),
+    identifier: namesUrl.href,
+  })
+  await namesModule.link(() => {
+    throw new Error('screenNames must stay free of runtime dependencies.')
+  })
+  await namesModule.evaluate()
+  assert.deepEqual(
+    [...namesModule.namespace.SCREEN_NAMES],
+    navigatorKeys,
+    'utils/screenNames.js must list exactly the navigator allowlist, in order.'
+  )
+  assert.equal(namesModule.namespace.LIVE_SCREEN_NAME, 'Live')
+}
 
 for (const [screenName, component] of Object.entries(screens)) {
   assert.strictEqual(
