@@ -15,6 +15,7 @@ import * as Device from 'expo-device';
 import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
+import ErrorBoundary from './components/ErrorBoundary';
 import StatusScreen, { StatusTone } from './components/StatusScreen';
 import MaintenanceScreen from './components/MaintenanceScreen';
 import orientationStore, {
@@ -359,7 +360,9 @@ export default function App(): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar hidden />
-      <AppNavigator />
+      <ErrorBoundary>
+        <AppNavigator />
+      </ErrorBoundary>
       {!maintenanceVisible ? (
         <Pressable
           accessibilityRole="button"
