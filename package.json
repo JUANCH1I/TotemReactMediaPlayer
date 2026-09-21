@@ -45,5 +45,11 @@
       ]
     }
   },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "@firebase/util",
+      "protobufjs"
+    ]
+  },
   "private": true
 }
