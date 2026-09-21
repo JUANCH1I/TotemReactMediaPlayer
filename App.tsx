@@ -23,6 +23,10 @@ import orientationStore, {
   normalizeAngle,
 } from './components/utils/orientationStore';
 import Kiosk from './modules/kiosk';
+import {
+  applyKioskActions,
+  resolveKioskActions,
+} from './components/utils/kioskPolicy';
 import { getDeviceId } from './components/utils/deviceId';
 import {
   createPresenceReporter,
@@ -174,6 +178,8 @@ export default function App(): React.JSX.Element {
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
   const [maintenancePin, setMaintenancePin] = useState<string | null>(null);
   const [rotation, setRotation] = useState(0);
+  const [homeEnabled, setHomeEnabled] = useState<unknown>(undefined);
+  const [kioskEnabled, setKioskEnabled] = useState<unknown>(undefined);
   const servicePresses = useRef(0);
   const servicePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -245,40 +251,52 @@ export default function App(): React.JSX.Element {
     );
   }, [deviceId]);
 
-  // Owning the screen is opt in, per totem, from the dashboard. Installing the
-  // app must never lock a television on its own: wireless debugging turns
-  // itself off on every reboot, so a screen locked by surprise can only be
-  // recovered by taking it down and resetting it. The dashboard flag, the
-  // service screen and the remote command are the three ways back.
+  // Two flags from the dashboard decide what the app does with a television
+  // it owns. Booting into the app (the home pin) is on by default, because a
+  // totem exists to come up on its content, and it is recoverable from the
+  // remote's settings button, the service screen and adb. Locking the screen
+  // to the app stays opt in: wireless debugging turns itself off on every
+  // reboot, so a screen locked by surprise can only be recovered by taking it
+  // down and resetting it. Installing the app must never touch a television
+  // on its own, so nothing here runs unless the app is device owner.
   useEffect(() => {
     if (!deviceId) {
       return undefined;
     }
 
-    try {
-      if (!Kiosk.isDeviceOwner()) {
-        return undefined;
-      }
-    } catch (error) {
-      return undefined;
+    const database = getDatabase();
+    const unsubscribeHome = onValue(
+      ref(database, `devices/${deviceId}/homeEnabled`),
+      (snapshot) => setHomeEnabled(snapshot.val()),
+    );
+    const unsubscribeKiosk = onValue(
+      ref(database, `devices/${deviceId}/kioskEnabled`),
+      (snapshot) => setKioskEnabled(snapshot.val()),
+    );
+
+    return () => {
+      unsubscribeHome();
+      unsubscribeKiosk();
+    };
+  }, [deviceId]);
+
+  useEffect(() => {
+    if (!deviceId) {
+      return;
     }
 
-    const kioskRef = ref(getDatabase(), `devices/${deviceId}/kioskEnabled`);
+    let isDeviceOwner = false;
+    try {
+      isDeviceOwner = Kiosk.isDeviceOwner();
+    } catch (error) {
+      return;
+    }
 
-    return onValue(kioskRef, (snapshot) => {
-      try {
-        if (snapshot.val() === true) {
-          Kiosk.setAsHome();
-          Kiosk.lock();
-        } else {
-          Kiosk.unlock();
-          Kiosk.clearHome();
-        }
-      } catch (error) {
-        console.error('Unable to apply the kiosk setting:', error);
-      }
-    });
-  }, [deviceId]);
+    applyKioskActions(
+      Kiosk,
+      resolveKioskActions({ isDeviceOwner, homeEnabled, kioskEnabled }),
+    );
+  }, [deviceId, homeEnabled, kioskEnabled]);
 
   // The status screens ask for Nunito; until it arrives the system face stands
   // in, so a slow font never holds up playback.

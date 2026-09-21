@@ -114,7 +114,9 @@ export interface DeviceData {
   /** Group whose playlist replaces the device's own in MediaPlayer mode. */
   groupId?: string | null
   live?: LiveBroadcast | null
-  /** Opt-in per totem; only honoured when the app is device owner. */
+  /** Boot into the app and answer the Home key; on unless explicitly false. Device owner only. */
+  homeEnabled?: boolean
+  /** Lock the television to the app. Opt-in per totem; only honoured when the app is device owner. */
   kioskEnabled?: boolean
   /** Code that opens the service screen from the remote. */
   maintenancePin?: string | null
