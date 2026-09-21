@@ -13,6 +13,7 @@ import type { Database } from 'firebase/database';
 import { getFirestore } from 'firebase/firestore';
 import * as Device from 'expo-device';
 import { useFonts } from 'expo-font';
+import { useKeepAwake } from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import AppNavigator from './components/AppNavigator';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -161,6 +162,10 @@ const registerDeviceInBackground = (): void => {
 };
 
 export default function App(): React.JSX.Element {
+  // The TV screensaver and sleep timer otherwise take over a screen that
+  // never receives a key; this covers the waiting and error screens too.
+  useKeepAwake();
+
   const [initializationState, setInitializationState] =
     useState<InitializationState>('initializing');
   const [initializationAttempt, setInitializationAttempt] = useState(0);

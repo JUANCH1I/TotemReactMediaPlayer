@@ -6,6 +6,10 @@ const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
 assert.match(source, /getApps\(\)\.length\s*>\s*0\s*\?\s*getApp\(\)\s*:\s*initializeApp\(/);
 assert.match(source, /Platform\.isTV/);
 assert.doesNotMatch(source, /location:\s*null/);
+// A totem never receives a key, so the screen has to be held awake by the app
+// from the very first render, before any content plays.
+assert.match(source, /import \{ useKeepAwake \} from 'expo-keep-awake';/);
+assert.match(source, /useKeepAwake\(\);/);
 // The boot, error and empty states share components/StatusScreen.js, so the
 // announcement and the retry control are asserted where they now live.
 const statusScreen = readFileSync(
