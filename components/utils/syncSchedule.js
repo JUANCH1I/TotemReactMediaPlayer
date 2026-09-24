@@ -42,6 +42,15 @@ export function isSameSyncConfig(left, right) {
   return left.anchorMs === right.anchorMs
 }
 
+// A video played faster or slower occupies less or more of the cycle than its
+// file length. The rate arrives already validated by the playlist sanitizer
+// (see utils/playbackRate.js); this module stays dependency free, so it only
+// guards against a value that could not be divided by.
+function resolveItemRate(item) {
+  const rate = item?.playbackRate
+  return typeof rate === 'number' && Number.isFinite(rate) && rate > 0 ? rate : 1
+}
+
 function resolveItemDurationMs(item, isImage) {
   if (isImage(item)) return IMAGE_DURATION_MS
 
@@ -50,7 +59,7 @@ function resolveItemDurationMs(item, isImage) {
     return null
   }
 
-  return seconds * 1000
+  return (seconds * 1000) / resolveItemRate(item)
 }
 
 export function computeSchedule({ items, anchorMs, nowMs, isImage }) {
@@ -165,6 +174,11 @@ export function resolveTransition({
   if (!restartAllowed) return hold(schedule.remainingMs)
 
   return { kind: TransitionKind.RESTART, index: currentIndex, delayMs: 0 }
+}
+
+// Wall-clock offset inside a video slot → position in the file, in ms.
+export function mediaPositionMs(offsetMs, item) {
+  return offsetMs * resolveItemRate(item)
 }
 
 export function shouldSeek(offsetMs, tolerance = SEEK_TOLERANCE_MS) {

@@ -31,8 +31,10 @@ import {
   normalizeSyncConfig,
   resolveImageDwellMs,
   resolveTransition,
+  mediaPositionMs,
   shouldSeek,
 } from './utils/syncSchedule'
+import { normalizePlaybackRate } from './utils/playbackRate'
 import {
   isPictureInPictureSupported,
   useVideoPlayer,
@@ -949,7 +951,10 @@ export default function MediaPlayer({
             `stored ${storedSeconds}s, file ${fileSeconds.toFixed(1)}s`
           )
         } else if (shouldSeek(schedule.offsetMs)) {
-          player.currentTime = schedule.offsetMs / 1000
+          // The schedule offset is wall-clock time inside the slot; a video
+          // played at another rate is further along (or behind) in the file.
+          player.currentTime =
+            mediaPositionMs(schedule.offsetMs, items[currentIndexRef.current]) / 1000
           offsetMs = schedule.offsetMs
         }
       }
@@ -1068,6 +1073,9 @@ export default function MediaPlayer({
       activeVideoGenerationRef.current = sourceGeneration
       videoWatchdogRef.current.activate(sourceGeneration)
       player.replace(localUri)
+      // Per item, and reset for items without one: the rate is a property of
+      // the player, so the previous item's speed would otherwise carry over.
+      player.playbackRate = normalizePlaybackRate(currentItem.playbackRate)
       return () => {
         videoWatchdogRef.current.deactivate(sourceGeneration)
         if (activeVideoGenerationRef.current === sourceGeneration) {

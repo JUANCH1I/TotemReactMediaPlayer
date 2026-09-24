@@ -35,6 +35,13 @@ assert.ok(
 )
 assert.match(source, /if \(source\.kind === 'group'\) setGroupId\(null\)/)
 
+// A per-item speed is applied on every video start (and reset by the same
+// line for items without one) and the sync seek converts wall-clock offset to
+// file position through the shared helper.
+assert.match(source, /player\.playbackRate = normalizePlaybackRate\(currentItem\.playbackRate\)/)
+assert.match(source, /mediaPositionMs\(schedule\.offsetMs, items\[currentIndexRef\.current\]\) \/ 1000/)
+assert.doesNotMatch(source, /player\.currentTime = schedule\.offsetMs \/ 1000/)
+
 // Every move of playback goes through the transition decision.
 assert.match(source, /computeSchedule\(\{/)
 const transitionCalls = (source.match(/resolveTransition\(\{/g) ?? []).length

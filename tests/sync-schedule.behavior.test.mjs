@@ -32,6 +32,7 @@ const {
   isSameSyncConfig,
   normalizeSyncConfig,
   resolveImageDwellMs,
+  mediaPositionMs,
   resolveTransition,
   shouldSeek,
 } = await loadModule()
@@ -41,6 +42,31 @@ const video = (seconds) => ({ videoUrl: 'https://cdn.example/v.mp4', duration: s
 const image = (seconds = 0) => ({ videoUrl: 'https://cdn.example/i.jpg', duration: seconds })
 
 assert.equal(IMAGE_DURATION_MS, 20000, 'Images keep the dwell the player always used.')
+
+{
+  // A 10 s video at 2× occupies 5 s of the cycle; at 0.5× it occupies 20 s.
+  // The seek into the file scales the other way: 2 s into the slot at 2× is
+  // 4 s into the file. Rates the sanitizer would never emit are ignored here.
+  const fast = { ...video(10), playbackRate: 2 }
+  const slow = { ...video(10), playbackRate: 0.5 }
+  const items = [fast, image(), slow]
+  const at = (elapsedMs) =>
+    plain(computeSchedule({ items, anchorMs: 0, nowMs: elapsedMs, isImage }))
+
+  assert.equal(at(0).cycleMs, 5000 + IMAGE_DURATION_MS + 20000)
+  assert.deepEqual(at(4999), { computable: true, index: 0, offsetMs: 4999, remainingMs: 1, cycleMs: 45000 })
+  assert.deepEqual(at(5000), { computable: true, index: 1, offsetMs: 0, remainingMs: IMAGE_DURATION_MS, cycleMs: 45000 })
+  assert.deepEqual(at(25000 + 19999), { computable: true, index: 2, offsetMs: 19999, remainingMs: 1, cycleMs: 45000 })
+  assert.equal(mediaPositionMs(2000, fast), 4000)
+  assert.equal(mediaPositionMs(2000, slow), 1000)
+  assert.equal(mediaPositionMs(2000, video(10)), 2000)
+  assert.equal(mediaPositionMs(2000, { ...video(10), playbackRate: 0 }), 2000)
+  assert.equal(
+    plain(computeSchedule({ items: [{ ...video(10), playbackRate: -1 }], anchorMs: 0, nowMs: 0, isImage })).cycleMs,
+    10000,
+    'A rate that cannot be divided by is treated as normal speed, never as a refusal.'
+  )
+}
 
 {
   // Three items: 10 s video, image (20 s by rule), 5 s video → 35 s cycle.

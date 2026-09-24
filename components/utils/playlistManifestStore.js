@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto'
 import * as FileSystem from 'expo-file-system/legacy'
+import { DEFAULT_PLAYBACK_RATE, normalizePlaybackRate } from './playbackRate'
 
 // Bumped whenever the item shape changes. Older versions listed here are
 // migrated on load by re-sanitizing their items (missing fields take their
@@ -67,10 +68,14 @@ export function sanitizePlaylist(value) {
       continue
     }
 
+    // The rate is kept only when it changes something, so manifests written
+    // before it existed and items played at normal speed share one shape.
+    const playbackRate = normalizePlaybackRate(item.playbackRate)
     items.push({
       videoUrl,
       ...(isUsableVideoId(item.videoId) ? { videoId: item.videoId } : {}),
       duration: sanitizeDuration(item.duration),
+      ...(playbackRate !== DEFAULT_PLAYBACK_RATE ? { playbackRate } : {}),
     })
   }
 

@@ -96,6 +96,15 @@ async function loadModule() {
   }
   const module = new vm.SourceTextModule(source, { context })
   await module.link(async (specifier) => {
+    // Sibling pure modules load for real; only the Expo natives are faked.
+    if (specifier.startsWith('./')) {
+      const siblingUrl = new URL(`../components/utils/${specifier.slice(2)}.js`, import.meta.url)
+      const sibling = new vm.SourceTextModule(readFileSync(siblingUrl, 'utf8'), { context })
+      await sibling.link(() => {
+        throw new Error(`${specifier} must stay free of runtime dependencies.`)
+      })
+      return sibling
+    }
     const values =
       specifier.startsWith('expo-file-system') ? fileSystemExports : cryptoExports
     return new vm.SyntheticModule(
@@ -164,6 +173,27 @@ assert.deepEqual(
     { videoUrl: 'https://cdn.example/e.mp4', duration: 0 },
   ],
   'videoId is optional and duration falls back to unknown, never to a rejection.'
+)
+// The speed is part of the manifest so an offline boot plays at the chosen
+// rate; normal speed and unlisted values leave the item shape untouched.
+assert.deepEqual(
+  JSON.parse(
+    JSON.stringify(
+      sanitizePlaylist({
+        a: { videoUrl: 'https://cdn.example/a.mp4', duration: 10, playbackRate: 1.5 },
+        b: { videoUrl: 'https://cdn.example/b.mp4', duration: 10, playbackRate: 1 },
+        c: { videoUrl: 'https://cdn.example/c.mp4', duration: 10, playbackRate: 3 },
+        d: { videoUrl: 'https://cdn.example/d.mp4', duration: 10, playbackRate: '2' },
+      })
+    )
+  ),
+  [
+    { videoUrl: 'https://cdn.example/a.mp4', duration: 10, playbackRate: 1.5 },
+    { videoUrl: 'https://cdn.example/b.mp4', duration: 10 },
+    { videoUrl: 'https://cdn.example/c.mp4', duration: 10 },
+    { videoUrl: 'https://cdn.example/d.mp4', duration: 10 },
+  ],
+  'Only listed rates other than 1 are kept; everything else is normal speed.'
 )
 assert.deepEqual(JSON.parse(JSON.stringify(sanitizePlaylist(null))), [])
 assert.deepEqual(JSON.parse(JSON.stringify(sanitizePlaylist({}))), [])

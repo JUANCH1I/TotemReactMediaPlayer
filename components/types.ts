@@ -28,6 +28,8 @@ export interface PlaylistItem {
   /** Seconds. Images usually arrive as 0 and get the player default. */
   duration: number
   videoId?: string
+  /** Video speed: one of 0.5, 0.75, 1, 1.25, 1.5, 2. Missing or invalid plays at 1. */
+  playbackRate?: number
 }
 
 /** Playlists are RTDB collections: objects indexed by push key, never arrays. */
