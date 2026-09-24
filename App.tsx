@@ -43,6 +43,9 @@ const RETRY_DELAY_SECONDS = 20;
 // key to JavaScript on a real television, while ordinary focus and press work.
 // It takes three presses because it is the only focusable thing on screen, so
 // a single press of select would otherwise drop a curious guest into service.
+// Being the only focusable thing also means it is always focused, so its ring
+// cannot be tied to focus: it stays invisible and only shows while a count is
+// armed, as feedback for whoever is holding the remote.
 const MAINTENANCE_PRESSES = 3;
 const MAINTENANCE_PRESS_WINDOW_MS = 4000;
 
@@ -180,6 +183,7 @@ export default function App(): React.JSX.Element {
   const [rotation, setRotation] = useState(0);
   const [homeEnabled, setHomeEnabled] = useState<unknown>(undefined);
   const [kioskEnabled, setKioskEnabled] = useState<unknown>(undefined);
+  const [servicePressArmed, setServicePressArmed] = useState(false);
   const servicePresses = useRef(0);
   const servicePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -192,14 +196,26 @@ export default function App(): React.JSX.Element {
 
     if (servicePresses.current >= MAINTENANCE_PRESSES) {
       servicePresses.current = 0;
+      setServicePressArmed(false);
       setMaintenanceVisible(true);
       return;
     }
 
+    setServicePressArmed(true);
     servicePressTimer.current = setTimeout(() => {
       servicePresses.current = 0;
+      setServicePressArmed(false);
     }, MAINTENANCE_PRESS_WINDOW_MS);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (servicePressTimer.current) {
+        clearTimeout(servicePressTimer.current);
+      }
+    },
+    [],
+  );
 
   // How this screen is mounted, from the device first so the very first frame
   // is already the right way up, then from the dashboard, which owns the value.
@@ -392,9 +408,9 @@ export default function App(): React.JSX.Element {
           accessibilityLabel="Abrir mantenimiento"
           hasTVPreferredFocus
           onPress={countServicePress}
-          style={({ focused }) => [
+          style={[
             styles.serviceTarget,
-            { opacity: focused ? 0.9 : 0.05 },
+            { opacity: servicePressArmed ? 0.9 : 0 },
           ]}
         />
       ) : null}

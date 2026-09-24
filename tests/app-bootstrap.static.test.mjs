@@ -10,6 +10,12 @@ assert.doesNotMatch(source, /location:\s*null/);
 // from the very first render, before any content plays.
 assert.match(source, /import \{ useKeepAwake \} from 'expo-keep-awake';/);
 assert.match(source, /useKeepAwake\(\);/);
+// The service target is the only focusable element, so it is always focused:
+// its ring must depend on an armed press count, never on focus, or it shows
+// permanently on the totem.
+assert.match(source, /opacity: servicePressArmed \? 0\.9 : 0 \}/);
+assert.doesNotMatch(source, /\(\{ focused \}\)/);
+assert.doesNotMatch(source, /focused \? 0\.9/);
 // The boot, error and empty states share components/StatusScreen.js, so the
 // announcement and the retry control are asserted where they now live.
 const statusScreen = readFileSync(
