@@ -112,6 +112,12 @@ export interface DeviceData {
   layout?: CanvasConfig
   /** Dashboard slider value, 0 to 100; utils/systemVolumeController.js maps it to 0 to 1. */
   volume?: number
+  /**
+   * Dashboard slider value, 0 to 100. Written to the panel backlight when the
+   * television allows it, drawn as a black veil otherwise
+   * (utils/panelBrightness.js). Absent means the remote control decides.
+   */
+  brightness?: number
   rotation?: Rotation
   /** Group whose playlist replaces the device's own in MediaPlayer mode. */
   groupId?: string | null

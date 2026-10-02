@@ -5,6 +5,7 @@ import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
+  View,
 } from 'react-native';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
@@ -28,6 +29,10 @@ import {
   resolveKioskActions,
 } from './components/utils/kioskPolicy';
 import { getDeviceId } from './components/utils/deviceId';
+import {
+  applyPanelBrightness,
+  normalizeDashboardBrightness,
+} from './components/utils/panelBrightness';
 import {
   createPresenceReporter,
   SERVER_TIME,
@@ -183,6 +188,7 @@ export default function App(): React.JSX.Element {
   const [rotation, setRotation] = useState(0);
   const [homeEnabled, setHomeEnabled] = useState<unknown>(undefined);
   const [kioskEnabled, setKioskEnabled] = useState<unknown>(undefined);
+  const [dimOpacity, setDimOpacity] = useState(0);
   const [servicePressArmed, setServicePressArmed] = useState(false);
   const servicePresses = useRef(0);
   const servicePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -314,6 +320,25 @@ export default function App(): React.JSX.Element {
     );
   }, [deviceId, homeEnabled, kioskEnabled]);
 
+  // Brightness from the dashboard goes to the panel backlight when the
+  // television lets us write it, and to a black veil over the app otherwise.
+  // With no value the backlight is left alone, so a level set with the remote
+  // is not overwritten; the veil is ours, so it is simply lifted.
+  useEffect(() => {
+    if (!deviceId) {
+      return undefined;
+    }
+
+    return onValue(
+      ref(getDatabase(), `devices/${deviceId}/brightness`),
+      (snapshot) => {
+        const level = normalizeDashboardBrightness(snapshot.val());
+        setDimOpacity(applyPanelBrightness(Kiosk, level));
+      },
+      (error) => console.error('Unable to read brightness:', error),
+    );
+  }, [deviceId]);
+
   // The status screens ask for Nunito; until it arrives the system face stands
   // in, so a slow font never holds up playback.
   useFonts({
@@ -402,6 +427,14 @@ export default function App(): React.JSX.Element {
       <ErrorBoundary>
         <AppNavigator />
       </ErrorBoundary>
+      {/* Over the content but under the service screen, which has to stay
+          readable on a dimmed totem. */}
+      {dimOpacity > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[styles.dimOverlay, { opacity: dimOpacity }]}
+        />
+      ) : null}
       {!maintenanceVisible ? (
         <Pressable
           accessibilityRole="button"
@@ -429,6 +462,10 @@ export default function App(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'black',
+  },
+  dimOverlay: {
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'black',
   },
   serviceTarget: {
