@@ -1,4 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
   <!-- Scanning for networks needs a location permission below Android 13 and
        the nearby devices permission from 13 on. A device owner grants these to
        itself, so nobody has to answer a dialog with a remote control. -->
@@ -8,6 +10,12 @@
   <uses-permission
     android:name="android.permission.NEARBY_WIFI_DEVICES"
     android:usesPermissionFlags="neverForLocation" />
+  <!-- Writes the panel backlight, a Global setting. No app is ever granted this
+       on install: it only takes effect once `adb shell pm grant` gives it, and
+       that command refuses a permission the manifest does not declare. -->
+  <uses-permission
+    android:name="android.permission.WRITE_SECURE_SETTINGS"
+    tools:ignore="ProtectedPermissions" />
 
   <application>
     <receiver

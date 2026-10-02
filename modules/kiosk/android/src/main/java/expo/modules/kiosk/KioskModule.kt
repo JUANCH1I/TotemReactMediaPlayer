@@ -39,6 +39,13 @@ import java.net.NetworkInterface
 // Note: startObserving and stopObserving are reserved by the Expo event system.
 private const val SETUP_PORT = 8088
 
+// The panel backlight on the MediaTek televisions we use (Innova / KTC Google
+// TV), 0 to 100. Settings.System screen_brightness does nothing on them. It is
+// a Global setting, so writing it needs WRITE_SECURE_SETTINGS, which being
+// device owner does not give: it is granted once per television over adb,
+//   adb shell pm grant com.juanch1.Totem android.permission.WRITE_SECURE_SETTINGS
+private const val PICTURE_BACKLIGHT = "picture_backlight"
+
 class KioskModule : Module() {
   // Both are held for as long as setup lasts: Android tears the hotspot down
   // the moment its reservation is released.
@@ -152,6 +159,26 @@ class KioskModule : Module() {
     return "data:image/png;base64," + Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
   }
 
+  // False when this television has no such setting or the permission was never
+  // granted, so the app can dim the picture itself instead.
+  private fun setBacklight(level: Int): Boolean {
+    val resolver = context.contentResolver
+
+    if (Settings.Global.getString(resolver, PICTURE_BACKLIGHT) == null) return false
+
+    if (context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+      != PackageManager.PERMISSION_GRANTED
+    ) {
+      return false
+    }
+
+    return try {
+      Settings.Global.putInt(resolver, PICTURE_BACKLIGHT, level.coerceIn(0, 100))
+    } catch (error: SecurityException) {
+      false
+    }
+  }
+
   private fun startServer() {
     server?.stop()
     server = SetupServer(
@@ -248,6 +275,8 @@ class KioskModule : Module() {
     Function("connect") { ssid: String, password: String? -> joinNetwork(ssid, password) }
 
     Function("currentNetwork") { -> readCurrentNetwork() }
+
+    Function("setBacklight") { level: Int -> setBacklight(level) }
 
     // A totem with no connection cannot be reached from the dashboard, and the
     // system Wi-Fi screens are drawn in the television's own orientation,

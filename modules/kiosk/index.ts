@@ -41,6 +41,12 @@ declare class KioskModule extends NativeModule {
   /** Pass no password for an open network. Returns whether it was accepted. */
   connect(ssid: string, password?: string | null): boolean;
   currentNetwork(): string | null;
+  /**
+   * Sets the panel backlight, 0 to 100. Returns false when the television has
+   * no such setting or WRITE_SECURE_SETTINGS was never granted over adb; the
+   * app then dims the picture itself.
+   */
+  setBacklight(level: number): boolean;
   /** Data URI of a QR drawn on the device, for screens with no internet. */
   qrCode(payload: string, size?: number): string;
 }
